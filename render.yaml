@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: resumetex-web
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      # Server-side compiling needs a LaTeX engine on the host.
+      # Free instances do NOT have one, so compiling stays off until you add
+      # "apt-get install -y texlive-latex-base texlive-latex-recommended" to
+      # the build command and set this to 1.
+      - key: RESUMETEX_ALLOW_COMPILE
+        value: "0"
+      - key: RESUMETEX_HOST
+        value: "0.0.0.0"

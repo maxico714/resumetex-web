@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Template gallery — ResumeTeX Web{% endblock %}
+
+{% block content %}
+<div class="section-title">
+  <h2>Template gallery</h2>
+  <span class="sub">Every score below is measured by the local ATS analyser on a complete sample CV.</span>
+</div>
+
+<div class="notice info">
+  The ATS-safe set is single-column, table-free and uses standard section names, so parsers read it
+  in the order you wrote it. The creative set looks better to a human but costs parseability —
+  the score tells you how much.
+</div>
+
+<div class="filters">
+  <div class="chips" id="galleryFilters">
+    <button class="chip on" data-filter="all">All</button>
+    <button class="chip" data-filter="ats">ATS safe</button>
+    <button class="chip" data-filter="creative">Creative</button>
+  </div>
+  <span class="small" id="galleryCount"></span>
+</div>
+
+<div class="cards" id="galleryCards"></div>
+
+<div class="card" style="margin-top:20px">
+  <h2>How the score is calculated</h2>
+  <p class="hint">100 points, computed locally in your browser/server — no CV is uploaded to score a template.</p>
+  <div class="kv">
+    <dt>20</dt><dd>Core sections present (Summary, Skills, Experience, Education)</dd>
+    <dt>15</dt><dd>No tables, columns, boxes, graphics or icon fonts</dd>
+    <dt>25</dt><dd>Bullet quality: 6–14 bullets, quantified share, action verbs</dd>
+    <dt>10</dt><dd>Date format, reverse-chronological order, a present role</dd>
+    <dt>10</dt><dd>Length fits one page</dd>
+    <dt>10</dt><dd>Skills grouped into labelled lines</dd>
+    <dt>5</dt><dd>Optional sections (Projects, Certifications, …)</dd>
+    <dt>15</dt><dd>Job-description keyword coverage (only when you paste a JD)</dd>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var items = [];
+  function render(filter) {
+    var box = document.getElementById("galleryCards");
+    box.innerHTML = "";
+    var shown = items.filter(function (item) {
+      return filter === "all" || item.atsClass === filter;
+    });
+    document.getElementById("galleryCount").textContent = shown.length + " templates";
+    shown.forEach(function (item) {
+      var card = document.createElement("div");
+      card.className = "tcard" + (item.atsClass === "creative" ? " creative" : "");
+      var scoreLine = document.createElement("div");
+      scoreLine.className = "score-line";
+      scoreLine.innerHTML = "<span class='score-val'>" + item.atsScore + "</span>" +
+        "<span class='grade " + item.atsGrade + "'>" + item.atsGrade + "</span>";
+      card.appendChild(scoreLine);
+      var title = document.createElement("h3");
+      title.textContent = item.name;
+      card.appendChild(title);
+      var summary = document.createElement("p");
+      summary.textContent = item.summary;
+      card.appendChild(summary);
+      var why = document.createElement("p");
+      why.textContent = item.why;
+      card.appendChild(why);
+      var tags = document.createElement("div");
+      tags.className = "tags";
+      (item.bestFor || []).forEach(function (tag) {
+        var chip = document.createElement("span");
+        chip.className = "tag";
+        chip.textContent = tag;
+        tags.appendChild(chip);
+      });
+      if (item.atsClass === "creative") {
+        var warn = document.createElement("span");
+        warn.className = "tag";
+        warn.style.background = "#fef2f2";
+        warn.style.color = "#b91c1c";
+        warn.textContent = "creative — lower ATS score";
+        tags.appendChild(warn);
+      }
+      card.appendChild(tags);
+      var link = document.createElement("a");
+      link.href = "/?template=" + encodeURIComponent(item.id);
+      link.className = "small";
+      link.textContent = "Use this template →";
+      card.appendChild(link);
+      box.appendChild(card);
+    });
+  }
+  document.getElementById("galleryFilters").addEventListener("click", function (event) {
+    var button = event.target.closest("button");
+    if (!button) return;
+    Array.prototype.forEach.call(this.querySelectorAll(".chip"), function (chip) {
+      chip.classList.toggle("on", chip === button);
+    });
+    render(button.dataset.filter);
+  });
+  fetch("/api/templates").then(function (r) { return r.json(); }).then(function (data) {
+    items = data.house || [];
+    render("all");
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="ResumeTeX Web — a private, local-first resume builder. Your contact details never reach the AI model.">
+  <title>{% block title %}ResumeTeX Web{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="brand" href="{{ url_for('index') }}">
+      <span class="brand-mark">R</span>
+      <span>ResumeTeX <em>Web</em></span>
+    </a>
+    <nav class="nav">
+      <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' }}">Builder</a>
+      <a href="{{ url_for('gallery_page') }}" class="{{ 'active' if request.endpoint == 'gallery_page' }}"><span class="nav-full">Template gallery</span><span class="nav-short">Gallery</span></a>
+      <a href="{{ url_for('privacy_page') }}" class="{{ 'active' if request.endpoint == 'privacy_page' }}">Privacy</a>
+    </nav>
+    <span class="badge" id="privacyBadge" title="Personal data stays in this browser">PII stays local</span>
+  </div>
+</header>
+
+<main class="wrap">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="wrap foot">
+  <p>ResumeTeX Web v{{ version }} — MIT licensed. <a href="{{ url_for('privacy_page') }}">How your data is handled</a>.</p>
+</footer>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

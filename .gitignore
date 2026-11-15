@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Node (only needed for the pdf.js vendor tooling, not for running the app)
+node_modules/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Compiled output and OS noise
+*.pdf
+*.aux
+*.log
+.DS_Store
+Thumbs.db

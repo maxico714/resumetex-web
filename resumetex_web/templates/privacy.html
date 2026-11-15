@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}We never send your name, email or phone number to an AI model — ResumeTeX{% endblock %}
+
+{% block content %}
+<article class="article">
+  <h1>We never send your name, email, or phone number to an AI model</h1>
+  <p class="lede">How ResumeTeX builds ATS-ready LaTeX resumes with AI — while your personally
+    identifiable information stays on your own machine.</p>
+
+  <p>If you want a CV written for you, the hard part is never the writing. It is that you do not
+    want to hand your name, address, phone number and email address to a model that keeps a log of
+    every request. So most tools make you choose: send everything and get a better first draft, or
+    protect your data and write every line yourself.</p>
+
+  <p>ResumeTeX does not make you choose. The personal details never travel to the AI provider.
+    They never travel to the model. They are not in the system prompt, and they are not in your
+    message. What the provider receives is the part of your CV that is not about identifying you.</p>
+
+  <h2>The problem this solves</h2>
+  <p>A blank form does not help you judge a CV. You cannot tell whether a template suits you until
+    you see it filled with content that looks like a real person. The usual workaround — paste your
+    whole resume into a chat box — sends exactly the data you wanted to keep private.</p>
+  <p>So we split the CV in two:</p>
+  <table>
+    <tr><th>Data</th><th>Where it is processed</th><th>Does it leave your device?</th></tr>
+    <tr><td>Name, email, phone, location, LinkedIn, GitHub, portfolio</td>
+        <td>In your browser, in memory</td><td><strong>No</strong></td></tr>
+    <tr><td>Resume text (skills, roles, education, projects)</td>
+        <td>Redacted locally, then sent</td><td>Yes — without the personal values</td></tr>
+    <tr><td>Your API key</td><td>In your browser</td><td>Only to the provider host you chose</td></tr>
+    <tr><td>The finished PDF</td><td>Compiled by pdflatex on your machine</td><td>No</td></tr>
+  </table>
+
+  <h2>How it works, step by step</h2>
+  <div class="flow">
+    <div><b>1 · You type your contact details</b>They live in the page. They are never uploaded,
+      never logged, and never stored on the server.</div>
+    <div><b>2 · You write or paste your resume text</b>Skills, roles, education — the content that
+      makes a CV worth reading.</div>
+    <div><b>3 · Local redaction</b>Every contact value you typed is replaced with neutral phrases
+      (<em>the candidate</em>, <em>the candidate's email</em>, …). Any stray email address or
+      phone-like number is caught too, even if you never typed it into a field.</div>
+    <div><b>4 · A leak gate</b>The redacted text is scanned again. If a single known personal value
+      survived, the request is blocked and nothing is sent.</div>
+    <div><b>5 · The request goes out</b>Only the redacted text, plus a system prompt that contains
+      no personal data at all.</div>
+    <div><b>6 · The model answers</b>Its reply is treated as untrusted input: reduced to a resume
+      body, stripped of any invented contact block, and checked for blocked LaTeX commands.</div>
+    <div><b>7 · The header is written locally</b>Your name and contact details are inserted into the
+      LaTeX in your browser, from the values that never left it.</div>
+    <div><b>8 · Local compile</b>pdflatex on your machine turns the document into a PDF.</div>
+  </div>
+
+  <h2>What the provider actually receives</h2>
+  <p>This is the whole user message for a real request. There is no name, no email, no phone, no
+    city, no profile link:</p>
+  <pre><code>[DETAILS]
+the candidate is an AI trainer and linguist with 4 years of experience.
+the candidate's email
+the candidate's phone number
+the candidate's location
+Skills: Python, SQL, JavaScript, prompt engineering
+Experience: AI Trainer &amp; Linguist | Freelance | 2022 - Present
+- Annotated 40,000+ samples across Hindi, English and Urdu.</code></pre>
+  <p>You can read the exact request before it is sent: the builder has a <strong>Show AI payload</strong>
+    button, and a <strong>Network log</strong> panel that lists every request the page made.</p>
+
+  <h2>How the redaction works</h2>
+  <p>Redaction is not a single find-and-replace. It is a pipeline, and it fails closed:</p>
+  <ul>
+    <li>Every filled contact value is replaced, longest first, so a full profile URL wins over the
+      handle inside it.</li>
+    <li>Names are matched on word boundaries, and their parts are matched too — a first name typed
+      alone still gets caught.</li>
+    <li>Profile handles are taken from the URL path only, never from a query string, so
+      <code>github.com/user?tab=repositories</code> still removes <code>user</code>.</li>
+    <li>Any remaining email address is replaced.</li>
+    <li>Any remaining 8–15 digit number is replaced, unless it is a year range or a decimal.</li>
+    <li>The result is scanned again. If any known value survives, generation is stopped.</li>
+  </ul>
+  <p>The same implementation exists in the browser and in the server, and the test suite asserts
+    that both produce byte-identical output for the same input. A privacy rule that only one side
+    enforces is not a rule.</p>
+
+  <h2>Verify it yourself</h2>
+  <ol>
+    <li>Open your browser's developer tools, go to <strong>Network</strong>, and press
+      <strong>Generate</strong>. You will see one request to your provider. Open its payload.</li>
+    <li>Search the payload for your name, your email address and your phone number. They are not
+      there — the model never received them.</li>
+    <li>Use the <strong>Show AI payload</strong> button to read the request before it leaves.</li>
+    <li>Run the app with <code>RESUMETEX_ALLOW_COMPILE=0</code> and the server refuses to compile
+      anything, so the only machine that ever sees your document is yours.</li>
+  </ol>
+
+  <h2>Where the PDF is compiled</h2>
+  <p>By default, on your own machine, with your own MiKTeX or TeX Live installation — the document
+    never leaves the computer. The web app exposes the same choice the desktop app has:</p>
+  <ul>
+    <li><strong>Local</strong> (default) — <code>pdflatex</code> runs as a child process in a
+      temporary folder that is deleted afterwards. Nothing is uploaded.</li>
+    <li><strong>Online</strong> — opt-in, off by default, and it uploads the entire document
+      <em>including</em> your contact details. The UI says so before you enable it.</li>
+  </ul>
+
+  <h2>Honest limitations</h2>
+  <p>Privacy claims are only as good as their edges, so here are the edges:</p>
+  <ul>
+    <li>If you paste personal data into the resume text in a form the redactor does not recognise
+      (a name that never appeared in a contact field, for example), it can reach the provider. The
+      contact fields, generic emails and phone-like numbers are covered; arbitrary names are not
+      detectable in general.</li>
+    <li>Online compiling is a third-party service. Its handling of uploaded data is outside this
+      project's control, which is why it is off by default.</li>
+    <li>MiKTeX may contact package repositories if a LaTeX package is missing. The templates use
+      only standard packages.</li>
+    <li>The AI provider still sees your <em>non-personal</em> resume content, and its own privacy
+      policy applies to that.</li>
+    <li>An API key saved in a browser is only as safe as the browser and the device. The desktop
+      app protects it with Windows DPAPI; in the browser, "remember key" is off by default.</li>
+  </ul>
+
+  <h2>Why we wrote this down</h2>
+  <p>A resume is the most personal document a working person owns. Building one with AI should not
+    require publishing it first. The whole design of this project follows from one sentence: the
+    model may help you write, but it never needs to know who you are.</p>
+
+  <h2>Run it yourself</h2>
+  <pre><code>git clone &lt;this repository&gt;
+cd resumetex-web
+pip install -e .
+resumetex-web serve</code></pre>
+  <p>Then open <code>http://127.0.0.1:5000</code>. It binds to loopback, stores nothing, and has no
+    telemetry of any kind. MIT licensed — read the code, run it on your own machine, and check the
+    privacy claims yourself.</p>
+</article>
+{% endblock %}

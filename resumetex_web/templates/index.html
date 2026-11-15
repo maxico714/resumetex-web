@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}ResumeTeX Web — private resume builder{% endblock %}
+
+{% block content %}
+<div class="section-title">
+  <h2>Resume builder</h2>
+  <span class="sub">Your details never leave this browser for the AI call.</span>
+</div>
+
+<div class="notice info" id="modeNotice">
+  <b>Private by default.</b> Name, email, phone, location and profile links are inserted into the
+  LaTeX locally. Only redacted, non-personal text is sent to the AI provider you configure.
+</div>
+
+<div class="grid side">
+  <!-- ------------------------------------------- column A: the content -->
+  <div class="col-a">
+    <div class="card">
+      <h2>1 · Your details</h2>
+      <p class="hint">Never included in an AI request. Used only for the local LaTeX header.</p>
+      <label class="field"><span>Name</span>
+        <input type="text" id="f_name" autocomplete="off" placeholder="Rehan Khan"></label>
+      <label class="field"><span>Email</span>
+        <input type="text" id="f_email" autocomplete="off" placeholder="you@example.com"></label>
+      <label class="field"><span>Phone</span>
+        <input type="text" id="f_phone" autocomplete="off" placeholder="+91 98765 43210"></label>
+      <label class="field"><span>Location</span>
+        <input type="text" id="f_location" autocomplete="off" placeholder="Indore, India"></label>
+      <label class="field"><span>LinkedIn</span>
+        <input type="text" id="f_linkedin" autocomplete="off" placeholder="linkedin.com/in/you"></label>
+      <label class="field"><span>GitHub</span>
+        <input type="text" id="f_github" autocomplete="off" placeholder="github.com/you"></label>
+      <label class="field"><span>Portfolio <em class="small">(optional)</em></span>
+        <input type="text" id="f_portfolio" autocomplete="off" placeholder="your-site.dev"></label>
+    </div>
+
+    <div class="card">
+      <h2>2 · Your resume text</h2>
+      <p class="hint">Paste what you have. Plain text is fine — headings are detected automatically.</p>
+      <textarea id="f_details" rows="10" placeholder="Summary&#10;Data analyst with 4 years of experience…&#10;&#10;Skills&#10;Python, SQL, Power BI, ETL&#10;&#10;Experience&#10;Senior Data Analyst, Infosys | Bengaluru | 2022 - Present&#10;- Built a Power BI dashboard used by 300 people, cutting reporting time by 30%."></textarea>
+      <details style="margin-top:10px">
+        <summary class="small" style="cursor:pointer">Job description (optional) — tailors the CV</summary>
+        <textarea id="f_jd" rows="5" style="margin-top:8px" placeholder="Paste the job description to mirror its keywords."></textarea>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>3 · Behaviour</h2>
+      <label class="field"><span>House style</span>
+        <select id="f_style"></select></label>
+      <label class="field"><span>Tone</span>
+        <select id="f_tone"></select></label>
+      <label class="field"><span>Emphasis</span>
+        <select id="f_emphasis"></select></label>
+      <label class="field"><span>Length target</span>
+        <select id="f_pages"><option value="1">1 page</option><option value="2">2 pages</option></select></label>
+      <label class="field"><span>Extra guidance for the AI (optional)</span>
+        <input type="text" id="f_guidance" placeholder="e.g. emphasise data engineering projects"></label>
+      <div class="small" style="margin-top:6px">
+        <label><input type="checkbox" id="f_projects" checked> Projects</label>
+        <label><input type="checkbox" id="f_certs" checked> Certifications</label>
+        <label><input type="checkbox" id="f_achievements" checked> Achievements</label>
+        <label><input type="checkbox" id="f_languages" checked> Languages</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------- column B: build + output -->
+  <div class="col-b">
+    <div class="card">
+      <div class="tabs">
+        <button data-tab="ai" class="on">AI generate</button>
+        <button data-tab="canvas">Canvas</button>
+        <button data-tab="tex">LaTeX source</button>
+      </div>
+
+      <!-- AI -->
+      <section data-panel="ai">
+        <div class="btn-row">
+          <button class="primary" id="btn_generate">Generate with AI</button>
+          <button id="btn_offline">Offline generator</button>
+          <button id="btn_payload" class="ghost">Show AI payload</button>
+        </div>
+        <div id="aiWarnings" style="margin-top:12px"></div>
+        <details id="payloadBox" style="margin-top:12px" hidden>
+          <summary class="small" style="cursor:pointer">Exact request that would be sent</summary>
+          <h3 class="small" style="margin:10px 0 4px">System prompt</h3>
+          <pre class="tex" id="payloadSystem" style="max-height:220px"></pre>
+          <h3 class="small" style="margin:10px 0 4px">User content (redacted)</h3>
+          <pre class="tex" id="payloadUser" style="max-height:160px"></pre>
+        </details>
+      </section>
+
+      <!-- Canvas -->
+      <section data-panel="canvas" hidden>
+        <p class="hint">Build a complete CV without any AI and without any key. Pick a gallery template,
+          fill the fields, render. Everything stays in this browser.</p>
+        <label class="field"><span>Template</span>
+          <select id="f_template"></select></label>
+        <label class="field"><span>Professional summary</span>
+          <textarea id="c_summary" rows="4"></textarea></label>
+        <label class="field"><span>Skills — one line per group</span>
+          <textarea id="c_skills" rows="4" placeholder="Languages: Python, SQL&#10;Frameworks: Django, FastAPI&#10;Cloud and Data: PostgreSQL, Power BI&#10;Practices: Agile, Testing"></textarea></label>
+        <div class="field"><span class="field-label">Experience</span>
+          <div id="c_experience"></div>
+          <button class="ghost" id="btn_add_exp" type="button" style="margin-top:8px">+ Add role</button>
+        </div>
+        <div class="field"><span class="field-label">Education</span>
+          <div id="c_education"></div>
+          <button class="ghost" id="btn_add_edu" type="button" style="margin-top:8px">+ Add education</button>
+        </div>
+        <div class="btn-row" style="margin-top:14px">
+          <button class="primary" id="btn_render">Render CV</button>
+          <button id="btn_load_sample" class="ghost" type="button">Load sample</button>
+        </div>
+      </section>
+
+      <!-- LaTeX -->
+      <section data-panel="tex" hidden>
+        <p class="hint">The complete document, exactly as it will be compiled. Edit and copy it if you like.</p>
+        <pre class="tex" id="texOut" style="max-height:420px">Nothing generated yet.</pre>
+        <div class="btn-row" style="margin-top:10px">
+          <button id="btn_copy_tex" type="button">Copy .tex</button>
+          <button id="btn_download_tex" type="button">Download .tex</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="card">
+      <h2>Output</h2>
+      <div class="btn-row">
+        <button class="primary" id="btn_compile" type="button">Compile PDF</button>
+        <button id="btn_download_pdf" type="button">Download PDF</button>
+        <button id="btn_fullscreen" class="ghost" type="button">Full screen</button>
+      </div>
+      <p class="small" id="engineNote" style="margin-top:8px"></p>
+      <div class="pdfbox" id="pdfBox" style="margin-top:12px"><p class="small">The compiled PDF appears here.</p></div>
+    </div>
+
+    <div class="card">
+      <h2>ATS score</h2>
+      <div class="score">
+        <span class="score-num" id="atsScore">–</span>
+        <span class="grade" id="atsGrade">–</span>
+        <span class="small" id="atsLabel">Generate or render a CV to score it.</span>
+      </div>
+      <div id="atsIssues"></div>
+    </div>
+
+    <div class="card">
+      <h2>Network log</h2>
+      <p class="hint">Every request this page made. Your provider key is never logged and the
+        request bodies shown here are already redacted.</p>
+      <div class="log" id="netLog"><div class="small">No requests yet.</div></div>
+      <div class="btn-row" style="margin-top:10px">
+        <button id="btn_clear_log" class="ghost" type="button">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------- column C: provider -->
+  <div class="col-c">
+    <div class="card">
+      <h2>4 · AI provider</h2>
+      <p class="hint">Bring your own key. It stays in this browser and is sent only to the host you pick.
+        Without a key, canvas mode still builds a complete CV.</p>
+      <label class="field"><span>Provider</span>
+        <select id="f_provider"></select></label>
+      <label class="field"><span>Base URL</span>
+        <input type="text" id="f_baseurl" spellcheck="false"></label>
+      <label class="field"><span>Model</span>
+        <input type="text" id="f_model" spellcheck="false"></label>
+      <label class="field"><span>API key</span>
+        <input type="password" id="f_key" autocomplete="off" placeholder="sk-…"></label>
+      <div class="row">
+        <label class="small"><input type="checkbox" id="f_remember"> remember key on this device</label>
+      </div>
+      <div class="btn-row" style="margin-top:10px">
+        <button id="btn_test_key" type="button">Test connection</button>
+        <button id="btn_forget_key" class="ghost" type="button">Forget key</button>
+      </div>
+      <p class="small" id="keyStatus" style="margin-top:8px">No key saved — canvas mode is available.</p>
+    </div>
+  </div>
+</div>
+
+<!-- sticky action bar: only on small screens -->
+<div class="mobilebar">
+  <button id="mb_generate" class="primary" type="button">Generate</button>
+  <button id="mb_compile" type="button">Compile PDF</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/redact.js') }}"></script>
+<script src="{{ url_for('static', filename='js/latex.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% endblock %}

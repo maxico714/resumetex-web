@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resumetex-web"
+version = "0.2.0"
+description = "A private, local-first resume builder. Your contact details never reach the AI model."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ResumeTeX contributors" }]
+keywords = ["resume", "cv", "latex", "ats", "privacy", "flask"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: Flask",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Office/Business",
+]
+dependencies = ["Flask>=3.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+resumetex-web = "resumetex_web.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/resumetex/resumetex-web"
+Privacy = "https://github.com/resumetex/resumetex-web/blob/main/PRIVACY.md"
+
+[tool.setuptools.packages.find]
+include = ["resumetex_web*"]
+
+[tool.setuptools.package-data]
+resumetex_web = ["templates/*.html", "static/css/*.css", "static/js/*.js", "static/vendor/pdfjs/*"]
