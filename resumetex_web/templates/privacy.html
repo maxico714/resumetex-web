@@ -5,7 +5,7 @@
 <article class="article">
   <h1>We never send your name, email, or phone number to an AI model</h1>
   <p class="lede">How ResumeTeX builds ATS-ready LaTeX resumes with AI — while your personally
-    identifiable information stays on your own machine.</p>
+    identifiable information stays out of every AI request.</p>
 
   <p>If you want a CV written for you, the hard part is never the writing. It is that you do not
     want to hand your name, address, phone number and email address to a model that keeps a log of
@@ -24,17 +24,20 @@
   <table>
     <tr><th>Data</th><th>Where it is processed</th><th>Does it leave your device?</th></tr>
     <tr><td>Name, email, phone, location, LinkedIn, GitHub, portfolio</td>
-        <td>In your browser, in memory</td><td><strong>No</strong></td></tr>
+        <td>In your browser, in memory</td><td><strong>No</strong> — not even to the AI</td></tr>
     <tr><td>Resume text (skills, roles, education, projects)</td>
         <td>Redacted locally, then sent</td><td>Yes — without the personal values</td></tr>
     <tr><td>Your API key</td><td>In your browser</td><td>Only to the provider host you chose</td></tr>
-    <tr><td>The finished PDF</td><td>Compiled by pdflatex on your machine</td><td>No</td></tr>
+    <tr><td>The finished PDF</td>
+        <td>Compiled by pdflatex on the app server, in local mode</td>
+        <td>No third party — the document goes only to the server you are using</td></tr>
   </table>
 
   <h2>How it works, step by step</h2>
   <div class="flow">
-    <div><b>1 · You type your contact details</b>They live in the page. They are never uploaded,
-      never logged, and never stored on the server.</div>
+    <div><b>1 · You type your contact details</b>They live in the page and are never included in
+      an AI request. When you compile the PDF in local mode, they travel to the app server inside
+      the LaTeX document — to no third party.</div>
     <div><b>2 · You write or paste your resume text</b>Skills, roles, education — the content that
       makes a CV worth reading.</div>
     <div><b>3 · Local redaction</b>Every contact value you typed is replaced with neutral phrases
@@ -48,7 +51,7 @@
       body, stripped of any invented contact block, and checked for blocked LaTeX commands.</div>
     <div><b>7 · The header is written locally</b>Your name and contact details are inserted into the
       LaTeX in your browser, from the values that never left it.</div>
-    <div><b>8 · Local compile</b>pdflatex on your machine turns the document into a PDF.</div>
+    <div><b>8 · Local compile</b>pdflatex on the app server turns the document into a PDF.</div>
   </div>
 
   <h2>What the provider actually receives</h2>
@@ -90,18 +93,24 @@ Experience: AI Trainer &amp; Linguist | Freelance | 2022 - Present
       there — the model never received them.</li>
     <li>Use the <strong>Show AI payload</strong> button to read the request before it leaves.</li>
     <li>Run the app with <code>RESUMETEX_ALLOW_COMPILE=0</code> and the server refuses to compile
-      anything, so the only machine that ever sees your document is yours.</li>
+      anything, so no server-side compiler ever receives your document.</li>
   </ol>
 
   <h2>Where the PDF is compiled</h2>
-  <p>By default, on your own machine, with your own MiKTeX or TeX Live installation — the document
-    never leaves the computer. The web app exposes the same choice the desktop app has:</p>
+  <p>By default, on the app server with its own TeX Live installation. When you self-host, that
+    machine is yours; on a hosted instance the document travels from your browser to that server
+    and to no third party. The web app exposes the same choice the desktop app has:</p>
   <ul>
     <li><strong>Local</strong> (default) — <code>pdflatex</code> runs as a child process in a
-      temporary folder that is deleted afterwards. Nothing is uploaded.</li>
+      temporary folder that is deleted afterwards. No third-party service receives the document.</li>
+    <li><strong>Automatic</strong> — local first; the online compiler is contacted only if the
+      local compile fails, and only when the server allows online compiling.</li>
     <li><strong>Online</strong> — opt-in, off by default, and it uploads the entire document
       <em>including</em> your contact details. The UI says so before you enable it.</li>
   </ul>
+  <p>The compiler selector in the Output card shows only the methods the server allows. Server
+    operators can leave online compiling off with <code>RESUMETEX_ALLOW_ONLINE_COMPILE=0</code>
+    (the default), so the private path is the only one available.</p>
 
   <h2>Honest limitations</h2>
   <p>Privacy claims are only as good as their edges, so here are the edges:</p>

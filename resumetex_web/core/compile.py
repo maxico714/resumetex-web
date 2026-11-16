@@ -1,7 +1,7 @@
 """PDF compilation.
 
-Local mode runs the user's own pdflatex (MiKTeX / TeX Live) exactly like the
-desktop app: the document never leaves the machine. Online mode is opt-in and
+Local mode runs pdflatex (MiKTeX / TeX Live) on the app server: the document
+never leaves that server and no third party sees it. Online mode is opt-in and
 warns, because it uploads the whole document including contact details.
 
 Ported from ResumeTex.Core/Compilation/*.cs
@@ -67,6 +67,31 @@ def is_available() -> bool:
 REQUIRED_PACKAGES = ("titlesec.sty", "enumitem.sty", "microtype.sty",
                     "xcolor.sty", "lmodern.sty", "mathptmx.sty")
 
+# A small document that exercises every package the real templates use. The
+# /api/compile/diagnose endpoint and the Docker build compile it for real.
+PROBE_TEX = r"""\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[left=0.75in,top=0.6in,right=0.75in,bottom=0.6in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{mathptmx}
+\definecolor{probenavy}{RGB}{0,54,123}
+\pagestyle{empty}
+\titleformat{\section}{\color{probenavy}\large\bfseries}{}{0em}{}[\color{probenavy}\titlerule]
+\begin{document}
+\section{Compiler probe}
+This document only proves that the LaTeX installation works.
+\begin{itemize}[leftmargin=1.15em,itemsep=1.5pt,topsep=2pt,parsep=0pt,partopsep=0pt]
+\item titlesec, enumitem, lmodern, mathptmx, xcolor, microtype and hyperref all loaded.
+\end{itemize}
+\href{https://example.com}{https://example.com}
+\end{document}
+"""
+
 
 def find_kpsewhich() -> str | None:
     """Locate kpsewhich, which tells us whether a .sty file is installed."""
@@ -122,6 +147,33 @@ def latex_status() -> dict:
             "missing": missing_packages() if exe else [],
         }
     return dict(_STATUS_CACHE)
+
+
+def pdflatex_version() -> str:
+    """First line of `pdflatex --version`, or an empty string."""
+    exe = find_pdflatex()
+    if not exe:
+        return ""
+    try:
+        completed = subprocess.run(
+            [exe, "--version"], capture_output=True, text=True, timeout=20,
+            errors="replace",
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"error: {exc}"
+    lines = (completed.stdout or "").strip().splitlines()
+    return lines[0] if lines else ""
+
+
+def probe_local(timeout: int = 45) -> dict:
+    """Compile PROBE_TEX with the local engine; never raises."""
+    try:
+        result = compile_local(PROBE_TEX, timeout=timeout)
+    except CompileError as exc:
+        return {"ok": False, "error": str(exc), "pages": 0, "bytes": 0,
+                "engine": ""}
+    return {"ok": True, "error": "", "pages": result.pages,
+            "bytes": len(result.pdf), "engine": result.engine}
 
 
 def _first_error(output: str) -> str:

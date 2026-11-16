@@ -4,6 +4,7 @@ header inserted locally."""
 
 import json
 import sys
+import urllib.error
 import urllib.request
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:5099"
@@ -14,6 +15,13 @@ def post(path, payload):
                                      headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=180) as response:
         return response.read(), response.headers
+
+def post_status(path, payload):
+    try:
+        post(path, payload)
+        return 200, b""
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
 
 def get(path):
     with urllib.request.urlopen(BASE + path, timeout=60) as response:
@@ -36,6 +44,35 @@ DATA = {
 
 templates = get("/api/templates")["house"]
 ok = fail = 0
+
+# Diagnostics: the server must be able to compile a harmless test document.
+diagnostics = json.loads(post("/api/compile/diagnose", {})[0].decode())
+engine = diagnostics.get("pdflatex") or {}
+probe = diagnostics.get("probe") or {}
+if not diagnostics.get("allowCompile"):
+    print("SKIP | diagnose (compiling disabled on this instance)")
+elif engine.get("found") and probe.get("ok"):
+    print(f"PASS | diagnose        {diagnostics.get('version')}  "
+          f"missing={engine.get('missing') or 'none'}  probe={probe.get('bytes')} bytes")
+    ok += 1
+else:
+    print(f"FAIL | diagnose        found={engine.get('found')} missing={engine.get('missing')} "
+          f"probe={probe.get('error') or probe}")
+    fail += 1
+
+# Online compile stays opt-in; when it is off the API must refuse it.
+if diagnostics.get("allowOnlineCompile"):
+    print("SKIP | online-gate (online compiling is enabled on this instance)")
+else:
+    status, body = post_status("/api/compile", {"tex": "\\documentclass{article}", "mode": "online"})
+    detail = json.loads(body.decode() or "{}").get("code", "")
+    if status == 403 and detail == "online_disabled":
+        print("PASS | online-gate     403 online_disabled")
+        ok += 1
+    else:
+        print(f"FAIL | online-gate     HTTP {status} {detail}")
+        fail += 1
+
 for template in templates:
     rendered = json.loads(post("/api/canvas/render", {"presetId": template["id"], "data": DATA})[0].decode())
     header = json.loads(post("/api/header", {

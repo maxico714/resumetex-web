@@ -1,8 +1,8 @@
 # ResumeTeX Web — Render / Docker deployment image.
 #
-# The LaTeX engine is installed best-effort: if apt fails the image still
-# builds and the app runs (AI + canvas + .tex export). PDF compile then reports
-# a clear "pdflatex not found" instead of crashing.
+# The image installs LaTeX and then compiles a real resume for every gallery
+# template. A missing package fails the build, so Render can never deploy an
+# instance whose "Compile PDF" button is silently broken.
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
@@ -10,7 +10,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# --- system packages + LaTeX engine (optional) -----------------------------
+# --- system packages + LaTeX engine ----------------------------------------
 # The templates need: geometry, hyperref, xcolor, microtype, titlesec,
 # enumitem, helvet/parskip, lmodern.  titlesec and enumitem live in
 # texlive-latex-extra — WITHOUT it every compile fails with
@@ -19,40 +19,16 @@ ENV PYTHONUNBUFFERED=1 \
 # ~2 GB texlive-fonts-extra, so the templates use them only when present and
 # fall back to mathptmx otherwise.
 RUN set -eux; \
-    if apt-get update -qq 2>/dev/null; then \
-        apt-get install -y --no-install-recommends \
-            lmodern \
-            texlive-latex-base \
-            texlive-latex-recommended \
-            texlive-latex-extra \
-            texlive-fonts-recommended \
-            || echo "WARNING: TeX Live packages could not be installed - PDF compile disabled"; \
-        rm -rf /var/lib/apt/lists/* || true; \
-    else \
-        echo "WARNING: apt-get update failed (read-only filesystem?) - continuing without LaTeX"; \
-    fi; \
-    if command -v pdflatex >/dev/null 2>&1; then \
-        echo "pdflatex: $(command -v pdflatex)"; \
-        printf '%s\n' \
-            '\documentclass{article}' \
-            '\usepackage{titlesec}' \
-            '\usepackage{enumitem}' \
-            '\usepackage{microtype}' \
-            '\usepackage{xcolor}' \
-            '\usepackage[hidelinks]{hyperref}' \
-            '\begin{document}ResumeTeX smoke test\end{document}' \
-            > /tmp/smoke.tex; \
-        if pdflatex -interaction=nonstopmode -halt-on-error \
-                -output-directory=/tmp /tmp/smoke.tex >/tmp/smoke.out 2>&1; then \
-            echo "LaTeX smoke test: OK (titlesec + enumitem available)"; \
-        else \
-            echo "WARNING: LaTeX smoke test FAILED - PDF compile will not work:"; \
-            tail -n 25 /tmp/smoke.out || true; \
-        fi; \
-        rm -f /tmp/smoke.* || true; \
-    else \
-        echo "WARNING: pdflatex not found - server-side PDF compile is disabled"; \
-    fi
+    apt-get -o Acquire::Retries=3 update; \
+    apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+        lmodern \
+        texlive-latex-base \
+        texlive-latex-recommended \
+        texlive-latex-extra \
+        texlive-fonts-recommended; \
+    rm -rf /var/lib/apt/lists/*; \
+    command -v pdflatex; \
+    pdflatex --version | head -n 1
 
 WORKDIR /app
 
@@ -62,6 +38,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # --- application ------------------------------------------------------------
 COPY . .
+
+# Strict build-time gate: compile every gallery template to a real PDF with
+# the same code path the server uses.  Remove this and a broken TeX install
+# only shows up when a user clicks Compile PDF.
+RUN python -m resumetex_web.docker_check
 
 ENV RESUMETEX_HOST=0.0.0.0 \
     PORT=8000

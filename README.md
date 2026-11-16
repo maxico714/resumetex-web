@@ -18,8 +18,8 @@ architecture, and it tells you how to verify the claims yourself.
     the provider host you pick.
   - **Canvas (no key)** — a structured editor with 15 scored templates. Works
     completely offline, with no account and no network.
-- **Real PDF** — compiled with your local MiKTeX / TeX Live (`pdflatex`). The
-  document never leaves your machine.
+- **Real PDF** — compiled with `pdflatex` on the app server (or your own
+  MiKTeX / TeX Live when self-hosted), never sent to a third party.
 - **ATS score** — a local analyser scores the result out of 100 and lists the
   exact issues to fix (structure, bullet quality, date format, length, keyword
   coverage against a pasted job description).
@@ -58,7 +58,9 @@ python -m unittest discover -s tests -v
 ## Deploy on Render (Docker)
 
 The repo ships a `Dockerfile` that installs the LaTeX engine itself, so the
-build never touches Render's read-only apt lists.
+build never touches Render's read-only apt lists. The build then compiles all
+15 gallery templates to a real PDF; if any template fails, **the build fails**
+instead of deploying a broken Compile PDF button.
 
 | Setting | Value |
 |---|---|
@@ -66,24 +68,62 @@ build never touches Render's read-only apt lists.
 | Instance type | Free |
 | Build command | *ignored* — comes from the Dockerfile |
 | Start command | *ignored* — `gunicorn wsgi:app --bind 0.0.0.0:$PORT` |
+| Health check | `/healthz` |
 | Env: `RESUMETEX_ALLOW_COMPILE` | `1` (server may run pdflatex) |
+| Env: `RESUMETEX_ALLOW_ONLINE_COMPILE` | `0` (no document ever uploaded) |
 | Env: `RESUMETEX_HOST` | `0.0.0.0` |
 
 Blueprint: `render.yaml` picks all of this up automatically — Render → New →
 **Blueprint** → select the repo.
 
-If the LaTeX packages cannot be installed the image still builds and the app
-runs; PDF compile then reports a clear error instead of failing. The image
-installs `lmodern`, `texlive-latex-base`, `texlive-latex-recommended`,
+The image installs `lmodern`, `texlive-latex-base`, `texlive-latex-recommended`,
 `texlive-latex-extra` (this one provides `titlesec` and `enumitem`) and
 `texlive-fonts-recommended`. It deliberately skips `texlive-fonts-extra`
 (~2 GB): the two serif presets fall back from `newtx` to `mathptmx`.
 
-`GET /api/health` reports the engine and any missing package:
+After a deploy, check the engine in one request:
+
+```bash
+curl -s https://YOUR-SERVICE.onrender.com/api/health
+```
+
+A healthy instance reports:
 
 ```json
-{"pdflatex": true, "latex": {"found": true, "missing": []}}
+{"pdflatex": true, "latex": {"found": true, "missing": []}, "allowCompile": true}
 ```
+
+The Output card also has **Test LaTeX setup**, which compiles a harmless test
+document and shows the engine version, path and any missing package. Use
+**Copy diagnostics** when reporting a problem.
+
+### Compiler methods
+
+The Output card lets the user pick how the PDF is produced:
+
+| Method | Where the CV goes |
+|---|---|
+| **Server pdflatex** (default) | Compiled on your server. Nothing is uploaded. |
+| **Automatic** | Server first; only if that fails, the full CV is uploaded to the third-party compiler. |
+| **Online compiler** | The full CV (including name, phone, email) is uploaded. A confirmation dialog warns before every upload. |
+
+`auto` and `online` only appear when `RESUMETEX_ALLOW_ONLINE_COMPILE=1`. The
+default is `0`, so the private path is the only one available.
+
+### If Compile PDF still fails on Render
+
+1. Open the Render Dashboard → your service → **Settings → Build & Deploy → Source →
+   Edit**. Set **Runtime → Docker** (Render does let you change an existing
+   service's runtime), clear the build/start commands, and save. If the service
+   is managed by the Blueprint, syncing `render.yaml` also applies the runtime.
+2. Trigger **Manual Deploy → Deploy latest commit** and watch the build log for
+   `OK: all 15 gallery templates compiled to PDF.` A red build means a TeX
+   package is missing; the log names it.
+3. Open `/api/health` — `"found": true` and `"missing": []` are required.
+4. Open the app → Output → **Test LaTeX setup**. Copy the diagnostics if the
+   probe fails.
+5. Free instances sleep after ~15 minutes. The first compile after a wake-up
+   can take a minute; the UI waits up to 150 seconds.
 
 To run without the engine at all, set `RESUMETEX_ALLOW_COMPILE=0`: the server
 then never sees a document (AI + canvas + `.tex` export only).
@@ -103,7 +143,8 @@ start: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 | `RESUMETEX_PORT` | `5000` | Port |
 | `RESUMETEX_ALLOW_COMPILE` | `1` | Server-side `pdflatex`. Set to `0` for an instance that never sees a document. |
 | `RESUMETEX_ALLOW_ONLINE_COMPILE` | `0` | Third-party compile. Off by default: it uploads the document *including* contact details. |
-| `RESUMETEX_ONLINE_COMPILE_URL` | `https://latex.ytotech.com/builds/sync` | Online compiler endpoint |
+| `RESUMETEX_ONLINE_URL` | `https://latex.ytotech.com/builds/sync` | Online compiler endpoint |
+| `RESUMETEX_COMPILE_TIMEOUT` | `75` | Seconds per compile |
 | `RESUMETEX_DEBUG` | `0` | Flask debug mode |
 
 ## Privacy model

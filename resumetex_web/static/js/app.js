@@ -30,7 +30,7 @@
   var KEY_KEY = "resumetex.apikey.v1";
 
   var state = {
-    settings: { provider: "OpenRouter", baseUrl: PROVIDERS[0].baseUrl, model: PROVIDERS[0].model, rememberKey: false },
+    settings: { provider: "OpenRouter", baseUrl: PROVIDERS[0].baseUrl, model: PROVIDERS[0].model, rememberKey: false, compiler: "local" },
     pii: {},
     body: "",
     tex: "",
@@ -456,6 +456,33 @@
     setNotice($("compileStatus"), kind, html);
   }
 
+  var COMPILER_TEXT = {
+    local: "Your CV is compiled on this server with pdflatex. No third-party service receives it.",
+    auto: "Tries the private server first. Only if that fails is the full document uploaded to a third-party compiler.",
+    online: "Your full CV — including name, phone and email — is uploaded to a third-party compiler. Use only if you accept that."
+  };
+
+  function compilerMode() {
+    var select = $("f_compiler");
+    return select && select.value ? select.value : "local";
+  }
+
+  function updateCompilerHint() {
+    var hint = $("compilerHint");
+    if (!hint) return;
+    var mode = compilerMode();
+    hint.textContent = COMPILER_TEXT[mode] || COMPILER_TEXT.local;
+    hint.style.color = mode === "local" ? "" : "#b45309";
+  }
+
+  function confirmCompiler(mode) {
+    if (mode === "local") return true;
+    var message = mode === "auto"
+      ? "Automatic mode compiles privately on the server first. If that fails, your full CV (including your name, phone and email) is uploaded to a third-party compiler. Continue?"
+      : "Online mode uploads your full CV — including your name, phone and email — to a third-party compiler. Continue?";
+    return window.confirm(message);
+  }
+
   function compilePdf(scrollToOutput) {
     if (scrollToOutput) {
       var card = $("outputCard");
@@ -465,10 +492,18 @@
       compileNotice("warn", "Generate or render a CV first — there is no LaTeX source yet.");
       return;
     }
+    var mode = compilerMode();
+    if (!confirmCompiler(mode)) {
+      compileNotice("warn", "Compile cancelled. Nothing was uploaded.");
+      return;
+    }
     var button = $("btn_compile");
     button.disabled = true;
-    compileNotice("info", "Compiling with pdflatex… the first compile on a free server can take up to a minute.");
-    $("engineNote").textContent = "Compiling with pdflatex…";
+    var startText = mode === "online"
+      ? "Uploading to the online compiler…"
+      : (mode === "auto" ? "Compiling privately on the server (online fallback allowed)…" : "Compiling with pdflatex…");
+    compileNotice("info", startText + " The first compile on a free server can take up to a minute.");
+    $("engineNote").textContent = startText;
     $("pdfBox").innerHTML = "";
 
     // A cold free server can be slow, but it must never hang the button forever.
@@ -478,7 +513,7 @@
     fetch("/api/compile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tex: state.tex, mode: "local" }),
+      body: JSON.stringify({ tex: state.tex, mode: mode }),
       signal: controller ? controller.signal : undefined
     }).then(function (response) {
       var type = response.headers.get("content-type") || "";
@@ -491,23 +526,38 @@
         });
       }
       return response.blob().then(function (blob) {
-        return { blob: blob, pages: response.headers.get("X-ResumeTeX-Pages") || "" };
+        return {
+          blob: blob,
+          pages: response.headers.get("X-ResumeTeX-Pages") || "",
+          engine: response.headers.get("X-ResumeTeX-Engine") || "",
+          online: response.headers.get("X-ResumeTeX-Online") === "1"
+        };
       });
     }).then(function (result) {
       if (!result.blob || result.blob.size < 5) throw new Error("The server did not return a PDF.");
       state.pdfBlob = result.blob;
       var size = Math.max(1, Math.round(result.blob.size / 1024));
       var pages = result.pages ? " · " + result.pages + " page(s)" : "";
-      compileNotice("good", "PDF ready — " + size + " KB" + pages + ". The document was compiled on this machine and never uploaded.");
-      $("engineNote").textContent = "Compiled locally with pdflatex.";
+      var where = result.online
+        ? "Compiled online — your CV was uploaded to a third-party compiler."
+        : "Compiled on this server with " + (result.engine || "pdflatex") + " — no third-party upload.";
+      compileNotice("good", "PDF ready — " + size + " KB" + pages + ". " + where);
+      $("engineNote").textContent = result.engine ? "Engine: " + result.engine : "";
       renderPdf(result.blob);
-      logNetwork({ what: "Compile", detail: "Local pdflatex produced a " + size + " KB PDF" + pages });
+      logNetwork({
+        what: "Compile",
+        detail: (result.online ? "Online compiler" : "Local pdflatex") +
+          " produced a " + size + " KB PDF" + pages
+      });
     }).catch(function (err) {
       var message = err.name === "AbortError"
         ? "The compile timed out. Try again (a cold free server is slow), or download the .tex file and compile it locally."
         : (err.message || "Compile failed.");
       if (err.code === "compile_disabled") {
         message += " Download the .tex file and compile it locally, or set RESUMETEX_ALLOW_COMPILE=1 on the server.";
+      }
+      if (err.code === "online_disabled") {
+        message += " Pick “Server pdflatex” instead, or set RESUMETEX_ALLOW_ONLINE_COMPILE=1 on the server.";
       }
       compileNotice("bad", message);
       $("engineNote").textContent = "";
@@ -519,27 +569,111 @@
     });
   }
 
+  function setCompilerOption(value, enabled) {
+    var select = $("f_compiler");
+    if (!select) return;
+    var option = select.querySelector('option[value="' + value + '"]');
+    if (option) option.disabled = !enabled;
+  }
+
   // Shown once at load, so a missing engine is visible before the first click.
   function checkServer() {
     fetch("/api/health").then(function (response) { return response.json(); })
       .then(function (health) {
-        if (!health.allowCompile) {
-          state.serverNotice = { kind: "warn", html: "Server-side PDF compile is disabled on this instance. Download the .tex file and compile it locally." };
+        var onlineAllowed = Boolean(health.allowOnlineCompile);
+        var localAllowed = Boolean(health.allowCompile);
+        setCompilerOption("auto", onlineAllowed && localAllowed);
+        setCompilerOption("online", onlineAllowed);
+        var chosen = state.settings.compiler;
+        if ((chosen === "online" && !onlineAllowed) ||
+            (chosen === "auto" && (!onlineAllowed || !localAllowed))) {
+          state.settings.compiler = "local";
+          saveSettings();
+        }
+        if (state.settings.compiler === "online" || state.settings.compiler === "auto") {
+          $("f_compiler").value = state.settings.compiler;
+        }
+        updateCompilerHint();
+
+        if (!localAllowed) {
+          state.serverNotice = {
+            kind: "warn",
+            html: "Server-side PDF compile is disabled on this instance." +
+              (onlineAllowed ? " You can pick the online compiler above, or download the .tex file and compile it locally." :
+                " Download the .tex file and compile it locally.")
+          };
         } else {
           var latex = health.latex || {};
           if (health.pdflatex === false || latex.found === false) {
-            state.serverNotice = { kind: "warn", html: "This server has no LaTeX engine, so PDF compile cannot run here. Download the .tex file and compile it with pdflatex or Overleaf." };
+            state.serverNotice = {
+              kind: "warn",
+              html: "This server has no LaTeX engine, so server compile cannot run here." +
+                (onlineAllowed ? " You can pick the online compiler above, or" : "") +
+                " download the .tex file and compile it with pdflatex or Overleaf."
+            };
           } else if (latex.missing && latex.missing.length) {
             state.serverNotice = { kind: "bad", html: "The server LaTeX install is incomplete — missing: " +
               latex.missing.join(", ") + ". Redeploy with the current Dockerfile, or compile the .tex locally." };
           } else {
-            $("engineNote").textContent = "Server LaTeX is ready. PDFs are compiled on this machine and never uploaded.";
+            $("engineNote").textContent = "Server LaTeX is ready. PDFs are compiled on this server and never sent to a third party.";
             return;
           }
         }
         compileNotice(state.serverNotice.kind, state.serverNotice.html);
       })
       .catch(function () { /* the compile button will report the real error */ });
+  }
+
+  function diagnose() {
+    var button = $("btn_diagnose");
+    var box = $("diagBox");
+    button.disabled = true;
+    box.hidden = false;
+    box.textContent = "Checking the server LaTeX installation…";
+    $("btn_copy_diag").hidden = true;
+    var started = Date.now();
+    fetch("/api/compile/diagnose", { method: "POST" })
+      .then(function (response) {
+        return response.json().then(function (data) { return { ok: response.ok, data: data || {} }; });
+      })
+      .then(function (result) {
+        var data = result.data;
+        var latex = data.pdflatex || {};
+        var probe = data.probe;
+        var lines = [
+          "ResumeTeX LaTeX diagnostics",
+          "Time: " + new Date().toISOString(),
+          "Compile allowed: " + (data.allowCompile ? "yes" : "no"),
+          "Online compile allowed: " + (data.allowOnlineCompile ? "yes" : "no"),
+          "pdflatex found: " + (latex.found ? "yes" : "no"),
+          "Path: " + (latex.path || "—"),
+          "Version: " + (data.version || "unknown"),
+          "Missing packages: " + ((latex.missing && latex.missing.length) ? latex.missing.join(", ") : "none")
+        ];
+        if (probe) {
+          lines.push("Probe compile: " + (probe.ok
+            ? "ok — " + probe.pages + " page, " + probe.bytes + " bytes, " + probe.engine
+            : "FAILED"));
+          if (probe.error) lines.push("Probe error: " + probe.error);
+        } else {
+          lines.push("Probe compile: not run (no local engine)");
+        }
+        box.textContent = lines.join("\n");
+        $("btn_copy_diag").hidden = false;
+        if (probe && probe.ok) {
+          compileNotice("good", "LaTeX works — a test document compiled in " +
+            ((Date.now() - started) / 1000).toFixed(1) + " s.");
+        } else if (!latex.found) {
+          compileNotice("warn", "This server has no pdflatex. Use the online compiler (if enabled) or compile the .tex locally.");
+        } else {
+          compileNotice("bad", "The server LaTeX install could not compile a test document. Copy the diagnostics for a bug report.");
+        }
+      })
+      .catch(function (err) {
+        box.textContent = "Diagnostics failed: " + (err.message || err);
+        compileNotice("bad", "Could not run the LaTeX check: " + (err.message || err));
+      })
+      .then(function () { button.disabled = false; });
   }
 
   var pdfjsReady = null;
@@ -702,6 +836,20 @@
     };
 
     $("btn_compile").onclick = function () { compilePdf(false); };
+    $("f_compiler").onchange = function () {
+      state.settings.compiler = this.value;
+      saveSettings();
+      updateCompilerHint();
+    };
+    $("btn_diagnose").onclick = diagnose;
+    $("btn_copy_diag").onclick = function () {
+      var text = $("diagBox").textContent || "";
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(function () {
+        $("btn_copy_diag").textContent = "Copied";
+        setTimeout(function () { $("btn_copy_diag").textContent = "Copy diagnostics"; }, 1500);
+      });
+    };
     $("btn_download_pdf").onclick = function () {
       if (!state.pdfBlob) { compileNotice("warn", "Compile the PDF first."); return; }
       downloadBlob(state.pdfBlob, "resume.pdf");
@@ -776,6 +924,9 @@
     $("f_baseurl").value = state.settings.baseUrl || PROVIDERS[0].baseUrl;
     $("f_model").value = state.settings.model || PROVIDERS[0].model;
     $("f_remember").checked = Boolean(state.settings.rememberKey);
+    var compiler = state.settings.compiler;
+    $("f_compiler").value = (compiler === "auto" || compiler === "online") ? compiler : "local";
+    updateCompilerHint();
     loadKey();
     bind();
     updateKeyStatus();

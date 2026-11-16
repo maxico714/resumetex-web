@@ -15,6 +15,10 @@ page and held in the browser tab.
   by the code in `static/js/latex.js`.
 - They are **not** part of any AI request. The system prompt contains no contact
   block, and the user message contains only the details text after redaction.
+- They are **not** sent to the online compiler unless the user explicitly picks
+  `online` (or `auto` after a local failure) and the operator enabled it. In the
+  default `local` mode the document travels from the browser to the app server
+  that runs `pdflatex`, and to no third party.
 - They are not written to the settings file, to any log, to telemetry, or to the
   registry — there is none.
 - They are written to disk only when the user downloads the `.tex` or the `.pdf`,
@@ -69,7 +73,9 @@ The key lives in the browser.
 ## 5. PDF
 
 - **Local (default):** `pdflatex` runs as a child process in a per-compile temp
-  folder that is deleted in a `finally` block. The document never leaves the PC.
+  folder that is deleted in a `finally` block. The document never leaves the server.
+- **Automatic (opt-in):** local first. The third-party compiler is contacted only
+  if the local compile fails, and only when online compiling is enabled.
 - **Online (opt-in):** a third-party compiler receives the complete `.tex` —
   including the contact header. It is **off by default**, and enabling it shows a
   warning. Set `RESUMETEX_ALLOW_ONLINE_COMPILE=1` to allow it.

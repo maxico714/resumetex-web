@@ -53,9 +53,19 @@ class DockerfileTests(unittest.TestCase):
         for package in ("titlesec.sty", "enumitem.sty"):
             self.assertIn(package[:-4], self.dockerfile)
 
-    def test_image_verifies_latex_at_build_time(self):
-        self.assertIn("smoke test", self.dockerfile.lower())
-        self.assertIn("pdflatex", self.dockerfile)
+    def test_image_verifies_real_resumes_at_build_time(self):
+        # A green image must mean Compile PDF works, not merely that Flask starts.
+        self.assertIn("python -m resumetex_web.docker_check", self.dockerfile)
+        check = _read("resumetex_web/docker_check.py")
+        self.assertIn("GALLERY", check)
+        self.assertIn("render_document", check)
+        self.assertIn("compile_local", check)
+        self.assertIn("return 1", check)
+
+    def test_build_does_not_swallow_apt_failures(self):
+        # The old best-effort install let Render deploy without TeX.
+        self.assertNotIn("|| echo \"WARNING", self.dockerfile)
+        self.assertIn("Acquire::Retries", self.dockerfile)
 
     def test_optional_fonts_are_not_required(self):
         # newtx lives in texlive-fonts-extra (~2 GB); templates must fall back.
@@ -63,11 +73,22 @@ class DockerfileTests(unittest.TestCase):
 
 
 class RenderConfigTests(unittest.TestCase):
+    def setUp(self):
+        self.render = _read("render.yaml")
+
     def test_blueprint_uses_docker_and_allows_compile(self):
-        render = _read("render.yaml")
-        self.assertIn("runtime: docker", render)
-        self.assertRegex(render, r"RESUMETEX_ALLOW_COMPILE\s*\n\s*value:\s*\"1\"")
-        self.assertIn("dockerfilePath", render)
+        self.assertIn("runtime: docker", self.render)
+        self.assertRegex(self.render, r"RESUMETEX_ALLOW_COMPILE\s*\n\s*value:\s*\"1\"")
+        self.assertIn("dockerfilePath", self.render)
+
+    def test_blueprint_enables_health_check_and_auto_deploy(self):
+        self.assertIn("healthCheckPath: /healthz", self.render)
+        self.assertIn("autoDeploy: true", self.render)
+
+    def test_online_compile_is_off_by_default(self):
+        self.assertRegex(
+            self.render,
+            r"RESUMETEX_ALLOW_ONLINE_COMPILE\s*\n\s*value:\s*\"0\"")
 
 
 class TemplateFallbackTests(unittest.TestCase):

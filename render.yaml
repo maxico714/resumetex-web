@@ -1,18 +1,25 @@
 services:
-  # Docker runtime: the image installs the LaTeX engine itself, so Render's
-  # read-only apt lists are never touched by the build command.
+  # Docker runtime: the image installs the LaTeX engine itself, compiles every
+  # gallery template at build time, and fails the build if a package is
+  # missing. Render's Python runtime has read-only apt lists, so Docker is
+  # required for PDF compile.
   - type: web
     name: resumetex-web
     runtime: docker
     dockerfilePath: ./Dockerfile
     dockerContext: .
     plan: free
+    healthCheckPath: /healthz
+    autoDeploy: true
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.4"
       # 1 = the server may run pdflatex locally. 0 = the server never sees a
       # document (AI + canvas + .tex export only).
       - key: RESUMETEX_ALLOW_COMPILE
         value: "1"
+      # 0 = the full CV (including contact details) is never uploaded to a
+      # third-party compiler. Set to 1 only if you accept that trade-off; the
+      # UI then warns the user before the upload.
+      - key: RESUMETEX_ALLOW_ONLINE_COMPILE
+        value: "0"
       - key: RESUMETEX_HOST
         value: "0.0.0.0"

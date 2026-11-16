@@ -236,26 +236,54 @@ def prompt():
 
 @api.post("/compile")
 def compile_tex():
-    """Compile LaTeX to PDF with the local pdflatex (or, opt-in, online)."""
+    """Compile LaTeX to PDF.
+
+    mode=local   server pdflatex (private, default)
+    mode=auto    try local first, then the online service if it is enabled
+    mode=online  third-party service (uploads the full document)
+    """
     config = current_app.config
-    if not config["ALLOW_COMPILE"]:
-        return jsonify({
-            "error": "Server-side compiling is disabled on this instance. "
-                     "Download the .tex file and compile it locally.",
-            "code": "compile_disabled",
-        }), 403
     payload = _payload()
     tex = str(payload.get("tex") or "")
     mode = str(payload.get("mode") or "local").lower()
+    if mode not in ("local", "auto", "online"):
+        mode = "local"
+
+    if mode in ("local", "auto") and not config["ALLOW_COMPILE"]:
+        return jsonify({
+            "error": "Server-side compiling is disabled on this instance. "
+                     "Download the .tex file and compile it locally, or choose "
+                     "the online compiler if it is enabled.",
+            "code": "compile_disabled",
+        }), 403
+    if mode == "online" and not config["ALLOW_ONLINE_COMPILE"]:
+        return jsonify({
+            "error": "Online compiling is disabled on this server. It uploads "
+                     "the document, including your contact details, to a "
+                     "third-party service. Set RESUMETEX_ALLOW_ONLINE_COMPILE=1 "
+                     "to enable it.",
+            "code": "online_disabled",
+        }), 403
+
     try:
+        used_online = False
         if mode == "online":
-            if not config["ALLOW_ONLINE_COMPILE"]:
-                return jsonify({
-                    "error": "Online compiling is disabled. It uploads the document, "
-                             "including your contact details, to a third-party server.",
-                    "code": "online_disabled",
-                }), 403
-            result = compile_online(tex, config["ONLINE_COMPILE_URL"], config["COMPILE_TIMEOUT"])
+            result = compile_online(tex, config["ONLINE_COMPILE_URL"],
+                                    config["COMPILE_TIMEOUT"])
+            used_online = True
+        elif mode == "auto":
+            try:
+                result = compile_local(tex, config["COMPILE_TIMEOUT"])
+            except CompileError as local_error:
+                if not config["ALLOW_ONLINE_COMPILE"]:
+                    raise CompileError(
+                        str(local_error) + " The online fallback is disabled on "
+                        "this server (RESUMETEX_ALLOW_ONLINE_COMPILE=0)."
+                    )
+                result = compile_online(tex, config["ONLINE_COMPILE_URL"],
+                                        config["COMPILE_TIMEOUT"])
+                result.engine += f" (local failed: {local_error})"
+                used_online = True
         else:
             result = compile_local(tex, config["COMPILE_TIMEOUT"])
     except CompileError as exc:
@@ -268,4 +296,25 @@ def compile_tex():
     )
     response.headers["X-ResumeTeX-Engine"] = result.engine
     response.headers["X-ResumeTeX-Pages"] = str(result.pages)
+    response.headers["X-ResumeTeX-Online"] = "1" if used_online else "0"
     return response
+
+
+@api.post("/compile/diagnose")
+def compile_diagnose():
+    """Check the server LaTeX environment without any personal data."""
+    config = current_app.config
+    from .core.compile import latex_status, pdflatex_version, probe_local
+
+    status = latex_status()
+    data = {
+        "allowCompile": config["ALLOW_COMPILE"],
+        "allowOnlineCompile": config["ALLOW_ONLINE_COMPILE"],
+        "onlineUrl": config["ONLINE_COMPILE_URL"] if config["ALLOW_ONLINE_COMPILE"] else "",
+        "pdflatex": status,
+        "version": pdflatex_version(),
+        "probe": None,
+    }
+    if status["found"]:
+        data["probe"] = probe_local(timeout=45)
+    return jsonify(data)

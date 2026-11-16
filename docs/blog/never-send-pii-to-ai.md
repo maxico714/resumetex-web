@@ -1,7 +1,7 @@
 # We never send your name, email, or phone number to an AI model
 
 **How ResumeTeX builds ATS-ready LaTeX resumes with AI — while your personally
-identifiable information stays on your own machine.**
+identifiable information stays out of every AI request.**
 
 > If you want a CV written for you, the hard part is never the writing. It is
 > that you do not want to hand your name, address, phone number and email
@@ -25,15 +25,16 @@ So we split the CV in two:
 
 | Data | Where it is processed | Does it leave your device? |
 |---|---|---|
-| Name, email, phone, location, LinkedIn, GitHub, portfolio | In your browser, in memory | **No** |
+| Name, email, phone, location, LinkedIn, GitHub, portfolio | In your browser, in memory | **No** — not even to the AI |
 | Resume text (skills, roles, education, projects) | Redacted locally, then sent | Yes — without the personal values |
 | Your API key | In your browser | Only to the provider host you chose |
-| The finished PDF | Compiled by pdflatex on your machine | No |
+| The finished PDF | Compiled by pdflatex on the app server, in local mode | No third party — only the server you are using |
 
 ## How it works, step by step
 
-1. **You type your contact details.** They live in the page. They are never
-   uploaded, never logged, and never stored on the server.
+1. **You type your contact details.** They live in the page and are never part of
+   an AI request. When you compile in local mode they travel to the app server
+   inside the LaTeX document, and to no third party.
 2. **You write or paste your resume text.** Skills, roles, education — the
    content that makes a CV worth reading.
 3. **Local redaction.** Every contact value you typed is replaced with neutral
@@ -49,7 +50,7 @@ So we split the CV in two:
    LaTeX commands.
 7. **The header is written locally.** Your name and contact details are inserted
    into the LaTeX in your browser, from the values that never left it.
-8. **Local compile.** `pdflatex` on your machine turns the document into a PDF.
+8. **Local compile.** `pdflatex` on the app server turns the document into a PDF.
 
 ## What the provider actually receives
 
@@ -100,16 +101,19 @@ privacy rule that only one side enforces is not a rule.
    They are not there — the model never received them.
 3. Use the **Show AI payload** button to read the request before it leaves.
 4. Run the app with `RESUMETEX_ALLOW_COMPILE=0` and the server refuses to
-   compile anything, so the only machine that ever sees your document is yours.
+   compile anything, so no server-side compiler ever sees your document.
 
 ## Where the PDF is compiled
 
-By default, on your own machine, with your own MiKTeX or TeX Live installation —
-the document never leaves the computer. The web app exposes the same choice the
+By default, on the app server with its own TeX Live installation. When you self-host,
+that machine is yours; on a hosted instance the document travels from your browser
+to that server and to no third party. The web app exposes the same choice the
 desktop app has:
 
 - **Local** (default) — `pdflatex` runs as a child process in a temporary folder
-  that is deleted afterwards. Nothing is uploaded.
+  that is deleted afterwards. No third-party service receives the document.
+- **Automatic** — local first; the online compiler is contacted only if the
+  local compile fails, and only when the server allows it.
 - **Online** — opt-in, off by default, and it uploads the entire document
   *including* your contact details. The UI says so before you enable it.
 

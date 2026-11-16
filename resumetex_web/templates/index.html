@@ -147,6 +147,13 @@
 
     <div class="card" id="outputCard">
       <h2>Output</h2>
+      <label class="field"><span>Compiler method</span>
+        <select id="f_compiler">
+          <option value="local">Server pdflatex — private (recommended)</option>
+          <option value="auto">Automatic — server first, online fallback</option>
+          <option value="online">Online compiler — uploads your CV</option>
+        </select></label>
+      <p class="small" id="compilerHint">Your CV is compiled on this server. Nothing leaves this machine.</p>
       <div class="btn-row">
         <button class="primary" id="btn_compile" type="button">Compile PDF</button>
         <button id="btn_download_pdf" type="button">Download PDF</button>
@@ -154,6 +161,11 @@
       </div>
       <div id="compileStatus" style="margin-top:10px"></div>
       <p class="small" id="engineNote" style="margin-top:8px"></p>
+      <div class="btn-row" style="margin-top:8px">
+        <button id="btn_diagnose" class="ghost" type="button">Test LaTeX setup</button>
+        <button id="btn_copy_diag" class="ghost" type="button" hidden>Copy diagnostics</button>
+      </div>
+      <pre class="tex" id="diagBox" hidden></pre>
       <div class="pdfbox" id="pdfBox" style="margin-top:12px"><p class="small">The compiled PDF appears here.</p></div>
     </div>
 
