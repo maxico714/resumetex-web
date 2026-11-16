@@ -56,4 +56,42 @@ def create_app(config: Config | None = None) -> Flask:
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         return response
 
+    # ---------------------------------------------------------------- errors
+    # The frontend talks JSON to /api; a stack trace as HTML breaks it.
+    @app.errorhandler(400)
+    def _bad_request(error):
+        return _json_error(400, getattr(error, "description", "Bad request."))
+
+    @app.errorhandler(404)
+    def _not_found(error):
+        return _json_error(404, "Not found.")
+
+    @app.errorhandler(405)
+    def _not_allowed(error):
+        return _json_error(405, "Method not allowed.")
+
+    @app.errorhandler(413)
+    def _too_large(error):
+        return _json_error(413, "The document is too large.")
+
+    @app.errorhandler(500)
+    def _server_error(error):  # pragma: no cover - safety net
+        app.logger.exception("Unhandled error: %s", error)
+        return _json_error(500, "Something went wrong on the server.")
+
+    @app.errorhandler(Exception)
+    def _unexpected(error):
+        from werkzeug.exceptions import HTTPException
+        if isinstance(error, HTTPException):
+            return _json_error(error.code or 500, error.description or "Request failed.")
+        app.logger.exception("Unhandled error: %s", error)
+        return _json_error(500, "Something went wrong on the server.")
+
     return app
+
+
+def _json_error(status: int, message: str):
+    from flask import jsonify
+    response = jsonify({"error": message, "code": f"http_{status}"})
+    response.status_code = status
+    return response

@@ -55,6 +55,35 @@ python -m unittest discover -s tests -v
   elsewhere.
 - For AI only: your own API key (optional; local model servers usually need none).
 
+## Deploy on Render (Docker)
+
+The repo ships a `Dockerfile` that installs the LaTeX engine itself, so the
+build never touches Render's read-only apt lists.
+
+| Setting | Value |
+|---|---|
+| Runtime | **Docker** (`Dockerfile` in the repo root) |
+| Instance type | Free |
+| Build command | *ignored* — comes from the Dockerfile |
+| Start command | *ignored* — `gunicorn wsgi:app --bind 0.0.0.0:$PORT` |
+| Env: `RESUMETEX_ALLOW_COMPILE` | `1` (server may run pdflatex) |
+| Env: `RESUMETEX_HOST` | `0.0.0.0` |
+
+Blueprint: `render.yaml` picks all of this up automatically — Render → New →
+**Blueprint** → select the repo.
+
+If the LaTeX packages cannot be installed the image still builds and the app
+runs; PDF compile then reports a clear "pdflatex not found" instead of failing.
+To run without the engine at all, set `RESUMETEX_ALLOW_COMPILE=0`: the server
+then never sees a document (AI + canvas + `.tex` export only).
+
+Manual (non-Docker) alternative, for a host where apt works:
+
+```
+build: apt-get update && apt-get install -y texlive-latex-base texlive-latex-recommended && pip install -r requirements.txt
+start: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+```
+
 ## Configuration
 
 | Variable | Default | Meaning |

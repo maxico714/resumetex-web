@@ -1,18 +1,18 @@
 services:
+  # Docker runtime: the image installs the LaTeX engine itself, so Render's
+  # read-only apt lists are never touched by the build command.
   - type: web
     name: resumetex-web
-    runtime: python
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.4"
-      # Server-side compiling needs a LaTeX engine on the host.
-      # Free instances do NOT have one, so compiling stays off until you add
-      # "apt-get install -y texlive-latex-base texlive-latex-recommended" to
-      # the build command and set this to 1.
+      # 1 = the server may run pdflatex locally. 0 = the server never sees a
+      # document (AI + canvas + .tex export only).
       - key: RESUMETEX_ALLOW_COMPILE
-        value: "0"
+        value: "1"
       - key: RESUMETEX_HOST
         value: "0.0.0.0"
