@@ -38,7 +38,8 @@
     templates: [],
     houseShells: {},
     promptTemplate: "",
-    promptContract: ""
+    promptContract: "",
+    serverNotice: null
   };
 
   // ---------------------------------------------------------------- helpers
@@ -264,6 +265,16 @@
   function setTex(tex) {
     state.tex = tex || "";
     $("texOut").textContent = state.tex || "Nothing generated yet.";
+    // A new document makes the previous PDF stale.
+    state.pdfBlob = null;
+    var box = $("pdfBox");
+    if (box) box.innerHTML = '<p class="small">The compiled PDF appears here.</p>';
+    if ($("engineNote")) $("engineNote").textContent = "";
+    if ($("compileStatus")) {
+      setNotice($("compileStatus"), null, null);
+      // Keep a server limitation (no engine / missing package) visible.
+      if (state.serverNotice) compileNotice(state.serverNotice.kind, state.serverNotice.html);
+    }
   }
 
   // --------------------------------------------------------------- AI flow
@@ -441,35 +452,94 @@
   }
 
   // -------------------------------------------------------------- compiling
-  function compilePdf() {
-    if (!state.tex.trim()) { setNotice($("aiWarnings"), "warn", "Generate or render a CV first."); return; }
-    $("btn_compile").disabled = true;
+  function compileNotice(kind, html) {
+    setNotice($("compileStatus"), kind, html);
+  }
+
+  function compilePdf(scrollToOutput) {
+    if (scrollToOutput) {
+      var card = $("outputCard");
+      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (!state.tex.trim()) {
+      compileNotice("warn", "Generate or render a CV first — there is no LaTeX source yet.");
+      return;
+    }
+    var button = $("btn_compile");
+    button.disabled = true;
+    compileNotice("info", "Compiling with pdflatex… the first compile on a free server can take up to a minute.");
     $("engineNote").textContent = "Compiling with pdflatex…";
-    postJson("/api/compile", { tex: state.tex, mode: "local" })
-      .catch(function (err) {
-        if (err.data && err.data.code === "compile_disabled") {
-          return fetch("/api/compile", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tex: state.tex, mode: "local" })
-          });
-        }
-        throw err;
-      })
-      .then(function (blob) {
-        if (blob instanceof Blob) {
-          state.pdfBlob = blob;
-          $("engineNote").textContent = "Compiled locally with pdflatex. The PDF never left this machine.";
-          renderPdf(blob);
+    $("pdfBox").innerHTML = "";
+
+    // A cold free server can be slow, but it must never hang the button forever.
+    var controller = window.AbortController ? new AbortController() : null;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, 150000) : null;
+
+    fetch("/api/compile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tex: state.tex, mode: "local" }),
+      signal: controller ? controller.signal : undefined
+    }).then(function (response) {
+      var type = response.headers.get("content-type") || "";
+      // Errors are JSON (including when compiling is disabled); a PDF is a blob.
+      if (!response.ok || type.indexOf("application/pdf") < 0) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          var err = new Error(data.error || ("Compile failed (HTTP " + response.status + ")."));
+          err.code = data.code || ("http_" + response.status);
+          throw err;
+        });
+      }
+      return response.blob().then(function (blob) {
+        return { blob: blob, pages: response.headers.get("X-ResumeTeX-Pages") || "" };
+      });
+    }).then(function (result) {
+      if (!result.blob || result.blob.size < 5) throw new Error("The server did not return a PDF.");
+      state.pdfBlob = result.blob;
+      var size = Math.max(1, Math.round(result.blob.size / 1024));
+      var pages = result.pages ? " · " + result.pages + " page(s)" : "";
+      compileNotice("good", "PDF ready — " + size + " KB" + pages + ". The document was compiled on this machine and never uploaded.");
+      $("engineNote").textContent = "Compiled locally with pdflatex.";
+      renderPdf(result.blob);
+      logNetwork({ what: "Compile", detail: "Local pdflatex produced a " + size + " KB PDF" + pages });
+    }).catch(function (err) {
+      var message = err.name === "AbortError"
+        ? "The compile timed out. Try again (a cold free server is slow), or download the .tex file and compile it locally."
+        : (err.message || "Compile failed.");
+      if (err.code === "compile_disabled") {
+        message += " Download the .tex file and compile it locally, or set RESUMETEX_ALLOW_COMPILE=1 on the server.";
+      }
+      compileNotice("bad", message);
+      $("engineNote").textContent = "";
+      $("pdfBox").innerHTML = '<p class="small">No PDF yet — the message above explains why.</p>';
+      logNetwork({ what: "Compile", detail: "Failed — " + String(message).slice(0, 120) });
+    }).then(function () {
+      if (timer) clearTimeout(timer);
+      button.disabled = false;
+    });
+  }
+
+  // Shown once at load, so a missing engine is visible before the first click.
+  function checkServer() {
+    fetch("/api/health").then(function (response) { return response.json(); })
+      .then(function (health) {
+        if (!health.allowCompile) {
+          state.serverNotice = { kind: "warn", html: "Server-side PDF compile is disabled on this instance. Download the .tex file and compile it locally." };
         } else {
-          throw new Error("Compile failed.");
+          var latex = health.latex || {};
+          if (health.pdflatex === false || latex.found === false) {
+            state.serverNotice = { kind: "warn", html: "This server has no LaTeX engine, so PDF compile cannot run here. Download the .tex file and compile it with pdflatex or Overleaf." };
+          } else if (latex.missing && latex.missing.length) {
+            state.serverNotice = { kind: "bad", html: "The server LaTeX install is incomplete — missing: " +
+              latex.missing.join(", ") + ". Redeploy with the current Dockerfile, or compile the .tex locally." };
+          } else {
+            $("engineNote").textContent = "Server LaTeX is ready. PDFs are compiled on this machine and never uploaded.";
+            return;
+          }
         }
+        compileNotice(state.serverNotice.kind, state.serverNotice.html);
       })
-      .catch(function (err) {
-        $("engineNote").textContent = "";
-        var message = (err.data && err.data.error) || err.message;
-        setNotice($("aiWarnings"), "bad", message);
-      })
-      .then(function () { $("btn_compile").disabled = false; });
+      .catch(function () { /* the compile button will report the real error */ });
   }
 
   var pdfjsReady = null;
@@ -631,9 +701,9 @@
       });
     };
 
-    $("btn_compile").onclick = compilePdf;
+    $("btn_compile").onclick = function () { compilePdf(false); };
     $("btn_download_pdf").onclick = function () {
-      if (!state.pdfBlob) { setNotice($("aiWarnings"), "warn", "Compile the PDF first."); return; }
+      if (!state.pdfBlob) { compileNotice("warn", "Compile the PDF first."); return; }
       downloadBlob(state.pdfBlob, "resume.pdf");
     };
     $("btn_download_tex").onclick = function () {
@@ -685,10 +755,10 @@
     $("mb_generate").onclick = function () {
       var tab = currentTab();
       if (tab === "canvas") renderCanvas();
-      else if (tab === "tex") compilePdf();
+      else if (tab === "tex") compilePdf(true);
       else generateWithAi();
     };
-    $("mb_compile").onclick = compilePdf;
+    $("mb_compile").onclick = function () { compilePdf(true); };
   }
 
   function currentTab() {
@@ -709,6 +779,7 @@
     loadKey();
     bind();
     updateKeyStatus();
+    checkServer();
     setTab("ai");
     Promise.all([loadTemplates(), loadPromptTemplate(), loadShellCache()])
       .then(function () { logNetwork({ what: "Ready", detail: "no personal data sent anywhere yet" }); })

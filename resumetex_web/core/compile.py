@@ -10,6 +10,7 @@ Ported from ResumeTex.Core/Compilation/*.cs
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -60,6 +61,69 @@ def is_available() -> bool:
     return find_pdflatex() is not None
 
 
+# Packages the house templates and every gallery preset rely on. `newtx*` is
+# deliberately absent: it lives in the multi-gigabyte texlive-fonts-extra, and
+# the templates fall back to mathptmx/lmodern when it is not installed.
+REQUIRED_PACKAGES = ("titlesec.sty", "enumitem.sty", "microtype.sty",
+                    "xcolor.sty", "lmodern.sty", "mathptmx.sty")
+
+
+def find_kpsewhich() -> str | None:
+    """Locate kpsewhich, which tells us whether a .sty file is installed."""
+    found = shutil.which("kpsewhich")
+    if found:
+        return found
+    exe = find_pdflatex()
+    if exe:
+        candidate = Path(exe).with_name("kpsewhich" + (".exe" if os.name == "nt" else ""))
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def missing_packages() -> list[str]:
+    """LaTeX packages that are needed but absent on this machine.
+
+    An empty list means either everything is present or we cannot tell
+    (kpsewhich unavailable) — callers should treat it as best-effort.
+    """
+    kpsewhich = find_kpsewhich()
+    if not kpsewhich:
+        return []
+    missing: list[str] = []
+    for package in REQUIRED_PACKAGES:
+        try:
+            completed = subprocess.run(
+                [kpsewhich, package], capture_output=True, text=True, timeout=15,
+                errors="replace",
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        if completed.returncode != 0 or not (completed.stdout or "").strip():
+            missing.append(package[:-4])
+    return missing
+
+
+_STATUS_CACHE: dict | None = None
+
+
+def latex_status() -> dict:
+    """Diagnostics for /api/health and the compile card in the UI.
+
+    Cached for the lifetime of the process: kpsewhich startup is slow on some
+    distributions, and an engine/package change requires a restart anyway.
+    """
+    global _STATUS_CACHE
+    if _STATUS_CACHE is None:
+        exe = find_pdflatex()
+        _STATUS_CACHE = {
+            "found": exe is not None,
+            "path": exe or "",
+            "missing": missing_packages() if exe else [],
+        }
+    return dict(_STATUS_CACHE)
+
+
 def _first_error(output: str) -> str:
     for line in (output or "").splitlines():
         trimmed = line.strip()
@@ -70,11 +134,16 @@ def _first_error(output: str) -> str:
 
 
 def _page_count(log: str) -> int:
-    import re
     # MiKTeX wraps the line, e.g. "Output written on ...pdf (\n1 page, ...)"
     flat = re.sub(r"\s+", " ", log or "")
     match = re.search(r"Output written on .*?\((\d+)\s+pages?", flat)
     return int(match.group(1)) if match else 0
+
+
+def _missing_package(output: str) -> str | None:
+    """The .sty file LaTeX complained about, e.g. 'titlesec.sty'."""
+    match = re.search(r"File [`']([^'`]+\.sty)' not found", output or "")
+    return match.group(1) if match else None
 
 
 def compile_local(tex: str, timeout: int = 75) -> CompileResult:
@@ -102,6 +171,8 @@ def compile_local(tex: str, timeout: int = 75) -> CompileResult:
             )
         except subprocess.TimeoutExpired:
             raise CompileError(f"PDF compile timed out after {timeout} seconds.")
+        except OSError as exc:
+            raise CompileError(f"Could not run pdflatex ({exe}): {exc}")
         output = (completed.stdout or "") + (completed.stderr or "")
         # MiKTeX often writes the summary to the log file, not to stdout.
         log_path = directory / "resume.log"
@@ -111,6 +182,13 @@ def compile_local(tex: str, timeout: int = 75) -> CompileResult:
             except OSError:
                 pass
         if completed.returncode != 0:
+            missing = _missing_package(output)
+            if missing:
+                raise CompileError(
+                    f"This server is missing the LaTeX package '{missing}'. "
+                    "The bundled Dockerfile installs texlive-latex-extra; redeploy "
+                    "with it, or download the .tex file and compile it locally."
+                )
             raise CompileError("LaTeX compile failed. " + _first_error(output))
         pdf_path = directory / "resume.pdf"
         if not pdf_path.exists():

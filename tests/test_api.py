@@ -20,6 +20,9 @@ class ApiTests(unittest.TestCase):
         data = self.client.get("/api/health").get_json()
         self.assertTrue(data["ok"])
         self.assertFalse(data["allowCompile"])
+        self.assertIn("latex", data)
+        self.assertIn("found", data["latex"])
+        self.assertIn("missing", data["latex"])
 
     def test_index_and_pages_render(self):
         for path in ("/", "/gallery", "/privacy"):

@@ -145,13 +145,14 @@
       </section>
     </div>
 
-    <div class="card">
+    <div class="card" id="outputCard">
       <h2>Output</h2>
       <div class="btn-row">
         <button class="primary" id="btn_compile" type="button">Compile PDF</button>
         <button id="btn_download_pdf" type="button">Download PDF</button>
         <button id="btn_fullscreen" class="ghost" type="button">Full screen</button>
       </div>
+      <div id="compileStatus" style="margin-top:10px"></div>
       <p class="small" id="engineNote" style="margin-top:8px"></p>
       <div class="pdfbox" id="pdfBox" style="margin-top:12px"><p class="small">The compiled PDF appears here.</p></div>
     </div>

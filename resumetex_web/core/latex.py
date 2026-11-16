@@ -302,7 +302,7 @@ PROJECTS_SHELL = r"""% ResumeTeX template: projects. Wide margins with a large P
 TIMES_SHELL = r"""% ResumeTeX template: times. Serif academic look with ruled sections.
 \documentclass[a4paper,11pt]{article}
 \usepackage[T1]{fontenc}
-\IfFileExists{newtxtext.sty}{\usepackage{newtxmath,newtxtext}}{\usepackage{lmodern}}
+\IfFileExists{newtxtext.sty}{\usepackage{newtxmath,newtxtext}}{\usepackage{mathptmx}}
 \usepackage[left=0.8in,right=0.8in,top=0.55in,bottom=0.55in]{geometry}
 \usepackage{parskip}
 \usepackage{titlesec}

@@ -4,7 +4,8 @@ from .ats import AtsReport, analyze, grade_label
 from .canvas import (LayoutPreset, parse_latex_body, render_body, render_document, sample_data)
 from .completeness import CompletenessReport, analyze as analyze_completeness
 from .completeness import find_placeholders, missing_core_sections
-from .compile import CompileError, CompileResult, compile_local, compile_online, is_available
+from .compile import (CompileError, CompileResult, compile_local, compile_online,
+                      is_available, latex_status, missing_packages)
 from .gallery import GALLERY, ats_safe, creative, gallery, preset
 from .latex import (STYLE_DESCRIPTIONS, STYLE_LABELS, body_to_plain_text, build_header,
                     compose, escape_text, escape_url, get_shell, normalize_url,
@@ -18,7 +19,7 @@ __all__ = [
     "AtsReport", "analyze", "grade_label", "LayoutPreset", "render_body", "render_document",
     "sample_data", "parse_latex_body", "CompletenessReport", "analyze_completeness", "find_placeholders",
     "missing_core_sections", "CompileError", "CompileResult", "compile_local",
-    "compile_online", "is_available", "GALLERY", "ats_safe", "creative", "gallery", "preset",
+    "compile_online", "is_available", "latex_status", "missing_packages", "GALLERY", "ats_safe", "creative", "gallery", "preset",
     "STYLE_DESCRIPTIONS", "STYLE_LABELS", "body_to_plain_text", "build_header", "compose",
     "escape_text", "escape_url", "get_shell", "normalize_url", "resolve_style",
     "sanitize_ai_output", "LaTeXRejected", "generate_body", "PiiFields", "PiiLeakError",

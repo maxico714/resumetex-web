@@ -18,7 +18,8 @@ sys.path.insert(0, ROOT)
 
 from resumetex_web.core import compose, get_shell, render_document, sample_data
 from resumetex_web.core.canvas import build_preamble
-from resumetex_web.core.gallery import GALLERY
+from resumetex_web.core.compile import CompileError, compile_local
+from resumetex_web.core.gallery import GALLERY, preset
 from resumetex_web.core.latex import HOUSE_SHELLS
 from resumetex_web.core.pii import PiiFields
 
@@ -84,6 +85,25 @@ class CompileTests(unittest.TestCase):
         for preset_id, preset in GALLERY.items():
             preamble = build_preamble(preset)
             self.assertIn("{}{0em}{}[", preamble, f"{preset_id} titleformat is malformed")
+
+    def test_serif_fallback_compiles_without_newtx(self):
+        """Render's image skips texlive-fonts-extra; mathptmx must take over."""
+        tex = render_document(sample_data(), preset("ats-classic"), PII)
+        self.assertIn("newtxtext", tex)
+        fallback = "\n".join(
+            "\\usepackage{mathptmx}" if "newtxtext" in line else line
+            for line in tex.splitlines())
+        code, error = compile_tex(fallback)
+        self.assertEqual(code, 0, error)
+
+    def test_missing_package_error_is_actionable(self):
+        """A hosted instance with an incomplete TeX install must say what is wrong."""
+        tex = ("\\documentclass{article}\\usepackage{doesnotexist}"
+               "\\begin{document}x\\end{document}")
+        with self.assertRaises(CompileError) as caught:
+            compile_local(tex)
+        self.assertIn("missing the LaTeX package 'doesnotexist.sty'", str(caught.exception))
+        self.assertIn("Dockerfile", str(caught.exception))
 
 
 if __name__ == "__main__":

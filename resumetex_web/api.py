@@ -51,10 +51,13 @@ def _options_from(payload: dict) -> ResumeOptions:
 
 @api.get("/health")
 def health():
+    from .core.compile import latex_status
+    latex = latex_status()
     return jsonify({
         "ok": True,
         "app": "ResumeTeX Web",
         "pdflatex": is_available(),
+        "latex": latex,
         "allowCompile": current_app.config["ALLOW_COMPILE"],
         "allowOnlineCompile": current_app.config["ALLOW_ONLINE_COMPILE"],
     })

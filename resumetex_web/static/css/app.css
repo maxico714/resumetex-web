@@ -104,7 +104,7 @@ button.ghost { background: transparent; }
 }
 .tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
 
-.notice { border-radius: 9px; padding: 10px 12px; font-size: 12.5px; margin-bottom: 12px; border: 1px solid; }
+.notice { border-radius: 9px; padding: 10px 12px; font-size: 12.5px; margin-bottom: 12px; border: 1px solid; overflow-wrap: anywhere; }
 .notice.info { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
 .notice.good { background: #ecfdf5; border-color: #bbf7d0; color: #14532d; }
 .notice.warn { background: #fffbeb; border-color: #fde68a; color: #78350f; }

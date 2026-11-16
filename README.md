@@ -73,14 +73,25 @@ Blueprint: `render.yaml` picks all of this up automatically — Render → New �
 **Blueprint** → select the repo.
 
 If the LaTeX packages cannot be installed the image still builds and the app
-runs; PDF compile then reports a clear "pdflatex not found" instead of failing.
+runs; PDF compile then reports a clear error instead of failing. The image
+installs `lmodern`, `texlive-latex-base`, `texlive-latex-recommended`,
+`texlive-latex-extra` (this one provides `titlesec` and `enumitem`) and
+`texlive-fonts-recommended`. It deliberately skips `texlive-fonts-extra`
+(~2 GB): the two serif presets fall back from `newtx` to `mathptmx`.
+
+`GET /api/health` reports the engine and any missing package:
+
+```json
+{"pdflatex": true, "latex": {"found": true, "missing": []}}
+```
+
 To run without the engine at all, set `RESUMETEX_ALLOW_COMPILE=0`: the server
 then never sees a document (AI + canvas + `.tex` export only).
 
 Manual (non-Docker) alternative, for a host where apt works:
 
 ```
-build: apt-get update && apt-get install -y texlive-latex-base texlive-latex-recommended && pip install -r requirements.txt
+build: apt-get update && apt-get install -y lmodern texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended && pip install -r requirements.txt
 start: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
 ```
 
