@@ -7,6 +7,7 @@ used by the AI path so the look is identical whichever route produced the data.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -349,3 +350,171 @@ def sample_data() -> dict[str, Any]:
         "achievements": ["Winner, inter-college analytics hackathon (2023)"],
         "languages": ["English (Fluent)", "Hindi (Native)", "Urdu (Fluent)"],
     }
+
+
+# ---------------------------------------------------------------- parsing
+# Turns an AI-generated LaTeX body back into canvas data, so the user can
+# edit what the model wrote and re-render it with a template.
+
+def _strip_wrappers(text: str) -> str:
+    """Remove the common LaTeX wrappers so plain text remains."""
+    out = text
+    for _ in range(6):
+        previous = out
+        out = re.sub(r"\\(textbf|textit|emph|underline|small)\{([^{}]*)\}", r"\2", out)
+        if out == previous:
+            break
+    out = re.sub(r"\\MakeUppercase\{([^{}]*)\}", r"\1", out)
+    # A literal backslash and LaTeX line breaks carry no content.
+    out = out.replace(r"\textbackslash{}", "")
+    out = re.sub(r"\\\\\s*", " ", out)
+    out = re.sub(r"\\(hfill|textbar|par)\b", " ", out)
+    out = re.sub(r"\\(textit|textbf|emph)\s*", "", out)
+    out = out.replace(r"\%", "%").replace(r"\&", "&").replace(r"\#", "#")
+    out = out.replace(r"\_", "_").replace(r"\$", "$")
+    out = re.sub(r"[{}]", "", out)
+    return re.sub(r"\s+", " ", out).strip()
+
+
+def _split_sections(body: str) -> list[tuple[str, str]]:
+    """(heading, content) pairs, brace-aware."""
+    sections: list[tuple[str, str]] = []
+    matches = list(re.finditer(r"\\section\{", body))
+    for index, match in enumerate(matches):
+        cursor = match.end()
+        depth = 1
+        while cursor < len(body) and depth:
+            char = body[cursor]
+            if char == "{" and body[cursor - 1] != "\\":
+                depth += 1
+            elif char == "}" and body[cursor - 1] != "\\":
+                depth -= 1
+            cursor += 1
+        heading = _strip_wrappers(body[match.end():cursor - 1]).lower()
+        start = cursor
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        sections.append((heading, body[start:end]))
+    return sections
+
+
+def _bullets_from(block: str) -> list[str]:
+    bullets: list[str] = []
+    for match in re.finditer(r"\\item\s+(.+?)(?=\n\s*\\item|\n\s*\\end\{itemize\}|\Z)", block, re.DOTALL):
+        text = _strip_wrappers(match.group(1).strip())
+        if text:
+            bullets.append(text)
+    return bullets
+
+
+def _entries_from(block: str) -> list[dict[str, Any]]:
+    """Entries of the shape \\textbf{Role, Company} \\hfill Dates + bullets."""
+    entries: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    bullets: list[str] = []
+    in_list = False
+
+    def flush() -> None:
+        nonlocal current, bullets
+        if current is not None:
+            current["bullets"] = bullets or current.get("bullets") or []
+            entries.append(current)
+            current = None
+            bullets = []
+
+    for raw_line in block.replace("\r\n", "\n").split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("\\begin{itemize}"):
+            in_list = True
+            bullets = []
+            continue
+        if line.startswith("\\end{itemize}"):
+            in_list = False
+            flush()
+            continue
+        if in_list:
+            if line.startswith("\\item"):
+                text = _strip_wrappers(line[len("\\item"):].strip())
+                if text:
+                    bullets.append(text)
+            continue
+        if "\\hfill" in line:
+            flush()
+            left, _, right = line.partition("\\hfill")
+            title = _strip_wrappers(left)
+            dates = _strip_wrappers(right)
+            role, _, company = title.partition(",")
+            current = {
+                "role": role.strip(),
+                "company": company.strip(),
+                "location": "",
+                "dates": dates.strip(),
+                "bullets": [],
+            }
+            continue
+        if current is not None and line.startswith("\\textit") and not current["location"]:
+            current["location"] = _strip_wrappers(line)
+            continue
+        if current is not None:
+            text = _strip_wrappers(line)
+            if text:
+                current.setdefault("bullets", []).append(text)
+    flush()
+    return entries
+
+
+def _skills_from(block: str) -> list[dict[str, Any]]:
+    groups: list[dict[str, Any]] = []
+    loose: list[str] = []
+    for raw_line in block.replace("\r\n", "\n").split("\n"):
+        line = raw_line.strip()
+        if not line or line.startswith("\\begin{itemize}") or line.startswith("\\end{itemize}"):
+            continue
+        match = re.match(r"\\textbf\{([^}]*)\}\s*:?\s*(.*)$", line)
+        if match:
+            label = _strip_wrappers(match.group(1)).rstrip(":").strip()
+            items = [item.strip() for item in match.group(2).replace(r"\\", "").split(",") if item.strip()]
+            if label or items:
+                groups.append({"label": label, "items": items})
+            continue
+        text = _strip_wrappers(line)
+        if text:
+            loose.append(text)
+    if loose:
+        items = []
+        for chunk in loose:
+            items.extend(part.strip() for part in chunk.replace(r"\\", "").split(",") if part.strip())
+        groups.append({"label": "", "items": items})
+    return groups
+
+
+def parse_latex_body(body: str) -> dict[str, Any]:
+    """Parse an AI-generated LaTeX body into canvas data."""
+    data: dict[str, Any] = {
+        "summary": "", "skills": [], "experience": [], "projects": [],
+        "education": [], "certifications": [], "achievements": [], "languages": [],
+    }
+    if not body or not body.strip():
+        return data
+
+    for heading, content in _split_sections(body):
+        if heading in ("professional summary", "summary", "profile", "objective"):
+            data["summary"] = _strip_wrappers(re.sub(r"\\small\{(.*)\}", r"\1", content, flags=re.DOTALL))
+        elif heading == "skills":
+            data["skills"] = _skills_from(content)
+        elif heading in ("professional experience", "experience", "work experience"):
+            data["experience"] = _entries_from(content)
+        elif heading == "projects":
+            data["projects"] = _entries_from(content)
+        elif heading == "education":
+            data["education"] = _entries_from(content)
+        elif heading in ("certifications", "certificates"):
+            data["certifications"] = _entries_from(content)
+        elif heading in ("achievements", "awards"):
+            data["achievements"] = _bullets_from(content) or [
+                _strip_wrappers(line) for line in content.split("\n") if _strip_wrappers(line)]
+        elif heading == "languages":
+            text = _strip_wrappers(content).replace(r"\\", "")
+            data["languages"] = [item.strip() for item in text.split(",") if item.strip()]
+    return data

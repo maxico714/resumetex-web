@@ -324,7 +324,41 @@
       .catch(function (err) { setNotice(warnings, "bad", err.message); });
   }
 
-  // ----------------------------------------------------------- canvas flow
+  // ---------------------------------------------------------- canvas flow
+  function fillCanvas(data) {
+    $("c_summary").value = data.summary || "";
+    $("c_skills").value = (data.skills || []).map(function (group) {
+      return (group.label ? group.label + ": " : "") + (group.items || []).join(", ");
+    }).join("\n");
+    $("c_achievements").value = (data.achievements || []).join("\n");
+    $("c_languages").value = (data.languages || []).join(", ");
+
+    var targets = [
+      ["#c_experience", data.experience], ["#c_education", data.education],
+      ["#c_projects", data.projects], ["#c_certifications", data.certifications],
+    ];
+    targets.forEach(function (pair) {
+      var container = document.querySelector(pair[0]);
+      if (!container) return;
+      container.innerHTML = "";
+      (pair[1] || []).forEach(function (entry) { entryRow(container, entry); });
+    });
+  }
+
+  function loadIntoCanvas() {
+    if (!state.body) {
+      setNotice($("aiWarnings"), "warn", "Generate a CV first — then you can edit it on the canvas.");
+      return;
+    }
+    postJson("/api/parse-body", { body: state.body })
+      .then(function (result) {
+        fillCanvas(result.data || {});
+        setTab("canvas");
+        logNetwork({ what: "Canvas import", detail: "AI body parsed into editable fields" });
+      })
+      .catch(function (err) { setNotice($("aiWarnings"), "bad", err.message); });
+  }
+
   function entryRow(target, values) {
     var row = el("div", "cv-row");
     ["role", "company", "location", "dates"].forEach(function (field) {
@@ -381,7 +415,13 @@
       summary: $("c_summary").value,
       skills: skills,
       experience: readEntries($("c_experience")),
-      education: readEntries($("c_education"))
+      education: readEntries($("c_education")),
+      projects: readEntries($("c_projects")),
+      certifications: readEntries($("c_certifications")),
+      achievements: $("c_achievements").value.split("\n").map(function (line) { return line.trim(); })
+        .filter(function (line) { return line.length; }),
+      languages: $("c_languages").value.split(",").map(function (line) { return line.trim(); })
+        .filter(function (line) { return line.length; })
     };
 
     postJson("/api/canvas/render", {
@@ -579,17 +619,14 @@
 
     $("btn_add_exp").onclick = function () { entryRow($("c_experience"), {}); };
     $("btn_add_edu").onclick = function () { entryRow($("c_education"), {}); };
+    $("btn_add_proj").onclick = function () { entryRow($("c_projects"), {}); };
+    $("btn_add_cert").onclick = function () { entryRow($("c_certifications"), {}); };
+    $("btn_to_canvas").onclick = loadIntoCanvas;
+    $("btn_tex_to_canvas").onclick = loadIntoCanvas;
     $("btn_render").onclick = renderCanvas;
     $("btn_load_sample").onclick = function () {
       api("/api/sample").then(function (sample) {
-        $("c_summary").value = sample.summary;
-        $("c_skills").value = sample.skills.map(function (group) {
-          return group.label + ": " + group.items.join(", ");
-        }).join("\n");
-        $("c_experience").innerHTML = "";
-        $("c_education").innerHTML = "";
-        sample.experience.forEach(function (entry) { entryRow($("c_experience"), entry); });
-        sample.education.forEach(function (entry) { entryRow($("c_education"), entry); });
+        fillCanvas(sample);
         renderCanvas();
       });
     };

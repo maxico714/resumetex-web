@@ -81,6 +81,9 @@
           <button id="btn_offline">Offline generator</button>
           <button id="btn_payload" class="ghost">Show AI payload</button>
         </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button id="btn_to_canvas" type="button">Edit this in Canvas →</button>
+        </div>
         <div id="aiWarnings" style="margin-top:12px"></div>
         <details id="payloadBox" style="margin-top:12px" hidden>
           <summary class="small" style="cursor:pointer">Exact request that would be sent</summary>
@@ -109,6 +112,21 @@
           <div id="c_education"></div>
           <button class="ghost" id="btn_add_edu" type="button" style="margin-top:8px">+ Add education</button>
         </div>
+        <details style="margin-top:14px">
+          <summary class="small" style="cursor:pointer">More sections (projects, certifications, achievements, languages)</summary>
+          <div class="field" style="margin-top:10px"><span class="field-label">Projects</span>
+            <div id="c_projects"></div>
+            <button class="ghost" id="btn_add_proj" type="button" style="margin-top:8px">+ Add project</button>
+          </div>
+          <div class="field"><span class="field-label">Certifications</span>
+            <div id="c_certifications"></div>
+            <button class="ghost" id="btn_add_cert" type="button" style="margin-top:8px">+ Add certification</button>
+          </div>
+          <label class="field"><span>Achievements (one per line)</span>
+            <textarea id="c_achievements" rows="3"></textarea></label>
+          <label class="field"><span>Languages (comma separated)</span>
+            <textarea id="c_languages" rows="2" placeholder="English (Fluent), Hindi (Native)"></textarea></label>
+        </details>
         <div class="btn-row" style="margin-top:14px">
           <button class="primary" id="btn_render">Render CV</button>
           <button id="btn_load_sample" class="ghost" type="button">Load sample</button>
@@ -122,6 +140,7 @@
         <div class="btn-row" style="margin-top:10px">
           <button id="btn_copy_tex" type="button">Copy .tex</button>
           <button id="btn_download_tex" type="button">Download .tex</button>
+          <button id="btn_tex_to_canvas" class="ghost" type="button">Edit in Canvas →</button>
         </div>
       </section>
     </div>

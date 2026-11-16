@@ -132,6 +132,15 @@ def generate_offline():
     return jsonify({"body": body, "style": style})
 
 
+@api.post("/parse-body")
+def parse_body():
+    """Parse an AI-generated LaTeX body into canvas data so it can be edited."""
+    payload = _payload()
+    body = str(payload.get("body") or "")
+    from .core import parse_latex_body
+    return jsonify({"data": parse_latex_body(body)})
+
+
 @api.post("/header")
 def header_only():
     """The contact header block alone (the browser composes the document)."""

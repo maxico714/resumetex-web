@@ -24,6 +24,9 @@ def create_app(config: Config | None = None) -> Flask:
         RESUMETEX_VERSION=__version__,
     )
     app.config["JSON_SORT_KEYS"] = False
+    # Static assets must never be served stale: a cached app.js breaks the UI
+    # after an update (and would hide fixes on Render).
+    app.config["SEND_FILE_MAX_AGE"] = 0
 
     app.register_blueprint(api)
 
