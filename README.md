@@ -8,6 +8,12 @@ links are never sent to an AI model.**
 Read the [privacy write-up](docs/blog/never-send-pii-to-ai.md) — it explains the
 architecture, and it tells you how to verify the claims yourself.
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/maxico714/resumetex-web)
+
+For the full from-scratch runbook — Blueprint flow, manual Docker setup,
+verification commands, free-tier limits and troubleshooting — see
+[DEPLOY_FROM_SCRATCH.md](DEPLOY_FROM_SCRATCH.md).
+
 ## What it does
 
 - **Contact fields + one details box** → a complete, ATS-safe LaTeX resume.
@@ -30,7 +36,7 @@ architecture, and it tells you how to verify the claims yourself.
 ## Install and run
 
 ```bash
-git clone https://github.com/resumetex/resumetex-web
+git clone https://github.com/maxico714/resumetex-web
 cd resumetex-web
 pip install -e .
 resumetex-web serve
@@ -73,8 +79,10 @@ instead of deploying a broken Compile PDF button.
 | Env: `RESUMETEX_ALLOW_ONLINE_COMPILE` | `0` (no document ever uploaded) |
 | Env: `RESUMETEX_HOST` | `0.0.0.0` |
 
-Blueprint: `render.yaml` picks all of this up automatically — Render → New →
-**Blueprint** → select the repo.
+**One-click Blueprint:**
+<https://render.com/deploy?repo=https://github.com/maxico714/resumetex-web> —
+`render.yaml` creates the Docker service with the settings above. The complete
+click-by-click runbook is in [DEPLOY_FROM_SCRATCH.md](DEPLOY_FROM_SCRATCH.md).
 
 The image installs `lmodern`, `texlive-latex-base`, `texlive-latex-recommended`,
 `texlive-latex-extra` (this one provides `titlesec` and `enumitem`) and
@@ -128,7 +136,9 @@ default is `0`, so the private path is the only one available.
 To run without the engine at all, set `RESUMETEX_ALLOW_COMPILE=0`: the server
 then never sees a document (AI + canvas + `.tex` export only).
 
-Manual (non-Docker) alternative, for a host where apt works:
+Manual (non-Docker) alternative, for a host where apt works. This does **not**
+work on Render's native Python runtime, whose apt lists are read-only; use the
+Dockerfile there:
 
 ```
 build: apt-get update && apt-get install -y lmodern texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended && pip install -r requirements.txt
