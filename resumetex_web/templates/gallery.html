@@ -10,12 +10,14 @@
 <div class="notice info">
   The ATS-safe set is single-column, table-free and uses standard section names, so parsers read it
   in the order you wrote it. The creative set looks better to a human but costs parseability —
-  the score tells you how much.
+  the score tells you how much. <b>Starter packs</b> come with editable sample content: open one,
+  replace the text with your own, and compile.
 </div>
 
 <div class="filters">
   <div class="chips" id="galleryFilters">
     <button class="chip on" data-filter="all">All</button>
+    <button class="chip" data-filter="starter">Starter packs</button>
     <button class="chip" data-filter="ats">ATS safe</button>
     <button class="chip" data-filter="creative">Creative</button>
   </div>
@@ -48,12 +50,20 @@
     var box = document.getElementById("galleryCards");
     box.innerHTML = "";
     var shown = items.filter(function (item) {
-      return filter === "all" || item.atsClass === filter;
+      if (filter === "all") return true;
+      if (filter === "starter") return Boolean(item.starter);
+      return item.atsClass === filter && !item.starter;
     });
-    document.getElementById("galleryCount").textContent = shown.length + " templates";
+    var safe = items.filter(function (item) { return item.atsClass === "ats"; }).length;
+    var starters = items.filter(function (item) { return item.starter; }).length;
+    var creative = items.length - safe;
+    document.getElementById("galleryCount").textContent =
+      shown.length + " of " + items.length + " templates · " + safe + " ATS-safe · " +
+      starters + " starter packs · " + creative + " creative";
     shown.forEach(function (item) {
       var card = document.createElement("div");
-      card.className = "tcard" + (item.atsClass === "creative" ? " creative" : "");
+      card.className = "tcard" + (item.atsClass === "creative" ? " creative" : "") +
+        (item.starter ? " starter" : "");
       var scoreLine = document.createElement("div");
       scoreLine.className = "score-line";
       scoreLine.innerHTML = "<span class='score-val'>" + item.atsScore + "</span>" +
@@ -70,6 +80,12 @@
       card.appendChild(why);
       var tags = document.createElement("div");
       tags.className = "tags";
+      if (item.starter) {
+        var starterTag = document.createElement("span");
+        starterTag.className = "tag starter";
+        starterTag.textContent = "starter pack — editable sample content";
+        tags.appendChild(starterTag);
+      }
       (item.bestFor || []).forEach(function (tag) {
         var chip = document.createElement("span");
         chip.className = "tag";
@@ -88,7 +104,7 @@
       var link = document.createElement("a");
       link.href = "/?template=" + encodeURIComponent(item.id);
       link.className = "small";
-      link.textContent = "Use this template →";
+      link.textContent = item.starter ? "Open in the canvas →" : "Use this template →";
       card.appendChild(link);
       box.appendChild(card);
     });

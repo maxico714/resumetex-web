@@ -1,7 +1,8 @@
 """Core logic of the ResumeTeX web app (pure Python, no Flask imports)."""
 
 from .ats import AtsReport, analyze, grade_label
-from .canvas import (LayoutPreset, parse_latex_body, render_body, render_document, sample_data)
+from .canvas import (LayoutPreset, parse_latex_body, render_body, render_document,
+                     sample_data, starter_data)
 from .completeness import CompletenessReport, analyze as analyze_completeness
 from .completeness import find_placeholders, missing_core_sections
 from .compile import (CompileError, CompileResult, compile_local, compile_online,
@@ -18,7 +19,7 @@ from .prompt import (ResumeOptions, build_system_prompt, build_user_content,
 
 __all__ = [
     "AtsReport", "analyze", "grade_label", "LayoutPreset", "render_body", "render_document",
-    "sample_data", "parse_latex_body", "CompletenessReport", "analyze_completeness", "find_placeholders",
+    "sample_data", "starter_data", "parse_latex_body", "CompletenessReport", "analyze_completeness", "find_placeholders",
     "missing_core_sections", "CompileError", "CompileResult", "compile_local",
     "compile_online", "is_available", "latex_status", "missing_packages",
     "pdflatex_version", "probe_local", "GALLERY", "ats_safe", "creative", "gallery", "preset",

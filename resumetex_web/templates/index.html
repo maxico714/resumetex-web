@@ -12,6 +12,21 @@
   LaTeX locally. Only redacted, non-personal text is sent to the AI provider you configure.
 </div>
 
+<div class="quickstart" aria-label="Three steps to a PDF">
+  <div class="quickstart-step">
+    <span class="quickstart-num">1</span>
+    <div><b>Pick a template</b><small>15 ATS-safe + 3 creative</small></div>
+  </div>
+  <div class="quickstart-step">
+    <span class="quickstart-num">2</span>
+    <div><b>Edit on the canvas</b><small>No key, no account</small></div>
+  </div>
+  <div class="quickstart-step">
+    <span class="quickstart-num">3</span>
+    <div><b>Compile &amp; download</b><small>Private by default</small></div>
+  </div>
+</div>
+
 <div class="grid side">
   <!-- ------------------------------------------- column A: the content -->
   <div class="col-a">
@@ -19,13 +34,13 @@
       <h2>1 · Your details</h2>
       <p class="hint">Never included in an AI request. Used only for the local LaTeX header.</p>
       <label class="field"><span>Name</span>
-        <input type="text" id="f_name" autocomplete="off" placeholder="Rehan Khan"></label>
+        <input type="text" id="f_name" autocomplete="off" placeholder="Alex Morgan"></label>
       <label class="field"><span>Email</span>
         <input type="text" id="f_email" autocomplete="off" placeholder="you@example.com"></label>
       <label class="field"><span>Phone</span>
-        <input type="text" id="f_phone" autocomplete="off" placeholder="+91 98765 43210"></label>
+        <input type="text" id="f_phone" autocomplete="off" placeholder="+1 555 010 0100"></label>
       <label class="field"><span>Location</span>
-        <input type="text" id="f_location" autocomplete="off" placeholder="Indore, India"></label>
+        <input type="text" id="f_location" autocomplete="off" placeholder="City, Country"></label>
       <label class="field"><span>LinkedIn</span>
         <input type="text" id="f_linkedin" autocomplete="off" placeholder="linkedin.com/in/you"></label>
       <label class="field"><span>GitHub</span>
@@ -69,13 +84,13 @@
   <div class="col-b">
     <div class="card">
       <div class="tabs">
-        <button data-tab="ai" class="on">AI generate</button>
-        <button data-tab="canvas">Canvas</button>
+        <button data-tab="canvas" class="on">Canvas</button>
+        <button data-tab="ai">AI generate</button>
         <button data-tab="tex">LaTeX source</button>
       </div>
 
       <!-- AI -->
-      <section data-panel="ai">
+      <section data-panel="ai" hidden>
         <div class="btn-row">
           <button class="primary" id="btn_generate">Generate with AI</button>
           <button id="btn_offline">Offline generator</button>
@@ -95,11 +110,27 @@
       </section>
 
       <!-- Canvas -->
-      <section data-panel="canvas" hidden>
-        <p class="hint">Build a complete CV without any AI and without any key. Pick a gallery template,
-          fill the fields, render. Everything stays in this browser.</p>
+      <section data-panel="canvas">
+        <p class="hint">Build a complete CV without any AI and without any key. Pick a template,
+          edit the fields, then compile. Everything stays in this browser until you press
+          <b>Compile PDF</b>.</p>
         <label class="field"><span>Template</span>
           <select id="f_template"></select></label>
+        <div class="template-box" id="templateInfo">
+          <div class="template-box-head">
+            <div>
+              <b id="templateName">Loading templates…</b>
+              <span class="small" id="templateBest"></span>
+            </div>
+            <span class="score-pill" id="templateScore">ATS —</span>
+          </div>
+          <p class="small" id="templateSummary"></p>
+          <div class="btn-row">
+            <button class="ghost" id="btn_template_content" type="button">Load starter content</button>
+          </div>
+        </div>
+        <label class="field"><span>Professional title <em class="small">(optional)</em></span>
+          <input type="text" id="c_headline" placeholder="Senior Software Developer"></label>
         <label class="field"><span>Professional summary</span>
           <textarea id="c_summary" rows="4"></textarea></label>
         <label class="field"><span>Skills — one line per group</span>
@@ -146,7 +177,10 @@
     </div>
 
     <div class="card" id="outputCard">
-      <h2>Output</h2>
+      <div class="card-head">
+        <h2>Output</h2>
+        <span class="status-pill" id="serverStatus">Checking server…</span>
+      </div>
       <label class="field"><span>Compiler method</span>
         <select id="f_compiler">
           <option value="local">Server pdflatex — private (recommended)</option>
@@ -156,10 +190,26 @@
       <p class="small" id="compilerHint">Your CV is compiled on this server. Nothing leaves this machine.</p>
       <div class="btn-row">
         <button class="primary" id="btn_compile" type="button">Compile PDF</button>
-        <button id="btn_download_pdf" type="button">Download PDF</button>
+        <button id="btn_download_pdf" type="button" disabled>Download PDF</button>
         <button id="btn_fullscreen" class="ghost" type="button">Full screen</button>
       </div>
-      <div id="compileStatus" style="margin-top:10px"></div>
+      <div id="compileStatus" style="margin-top:10px" aria-live="polite"></div>
+      <div class="compile-progress" id="compileProgress" hidden>
+        <div class="progress-head">
+          <span id="progressLabel">Preparing…</span>
+          <span class="mono" id="progressTime">0.0s</span>
+        </div>
+        <div class="progress-track" id="progressTrack" role="progressbar"
+             aria-labelledby="progressLabel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <ol class="progress-steps" id="progressSteps">
+          <li data-step="prepare"><span class="step-dot"></span>Prepare document</li>
+          <li data-step="compile"><span class="step-dot"></span>Run compiler</li>
+          <li data-step="preview"><span class="step-dot"></span>Build PDF preview</li>
+        </ol>
+        <div class="live-feed" id="compileFeed" aria-live="polite"></div>
+      </div>
       <p class="small" id="engineNote" style="margin-top:8px"></p>
       <div class="btn-row" style="margin-top:8px">
         <button id="btn_diagnose" class="ghost" type="button">Test LaTeX setup</button>

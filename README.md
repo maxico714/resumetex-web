@@ -22,15 +22,18 @@ verification commands, free-tier limits and troubleshooting — see
     Together AI, DeepSeek, Mistral, or a local Ollama / LM Studio server.
     **You bring your own key.** The key stays in your browser and is sent only to
     the provider host you pick.
-  - **Canvas (no key)** — a structured editor with 15 scored templates. Works
+  - **Canvas (no key)** — a structured editor with 18 scored templates,
+    including three starter packs that open with editable sample content. Works
     completely offline, with no account and no network.
-- **Real PDF** — compiled with `pdflatex` on the app server (or your own
-  MiKTeX / TeX Live when self-hosted), never sent to a third party.
+- **Real PDF with live progress** — compiled with `pdflatex` on the app server
+  (or your own MiKTeX / TeX Live when self-hosted), never sent to a third party.
+  The compile streams stage-by-stage progress and elapsed time into the page.
 - **ATS score** — a local analyser scores the result out of 100 and lists the
   exact issues to fix (structure, bullet quality, date format, length, keyword
   coverage against a pasted job description).
-- **Template gallery** — 12 ATS-safe layouts and 3 creative ones, each with a
-  *measured* ATS score and the reason behind it.
+- **Template gallery** — 15 ATS-safe layouts (three of them editable starter
+  packs) and 3 creative ones, each with a *measured* ATS score and the reason
+  behind it.
 - **Network log** — every request the page made, so you can see what left.
 
 ## Install and run
@@ -65,7 +68,7 @@ python -m unittest discover -s tests -v
 
 The repo ships a `Dockerfile` that installs the LaTeX engine itself, so the
 build never touches Render's read-only apt lists. The build then compiles all
-15 gallery templates to a real PDF; if any template fails, **the build fails**
+18 gallery templates to a real PDF; if any template fails, **the build fails**
 instead of deploying a broken Compile PDF button.
 
 | Setting | Value |
@@ -125,7 +128,7 @@ default is `0`, so the private path is the only one available.
    service's runtime), clear the build/start commands, and save. If the service
    is managed by the Blueprint, syncing `render.yaml` also applies the runtime.
 2. Trigger **Manual Deploy → Deploy latest commit** and watch the build log for
-   `OK: all 15 gallery templates compiled to PDF.` A red build means a TeX
+   `OK: all 18 gallery templates compiled to PDF.` A red build means a TeX
    package is missing; the log names it.
 3. Open `/api/health` — `"found": true` and `"missing": []` are required.
 4. Open the app → Output → **Test LaTeX setup**. Copy the diagnostics if the
@@ -173,10 +176,13 @@ same rules, and `tests/test_core.py` asserts they produce identical output.
 
 ## Templates and ATS scoring
 
-The gallery has 15 layouts. Each is rendered with a complete sample CV and scored
+The gallery has 18 layouts. Each is rendered with a complete sample CV and scored
 by the local analyser:
 
-- **12 ATS-safe** (score 93) — single column, no tables, standard section names.
+- **15 ATS-safe** (score 93) — single column, no tables, standard section names.
+  Three are **starter packs** (`Starter Classic`, `Starter Modern Navy`,
+  `Starter Executive`) that load editable sample content into the canvas with
+  blank contact fields.
 - **3 creative** (score 88) — a sidebar, a date rail or a boxed header. They read
   better to a human but measurably lower the ATS score, and the gallery says so.
 

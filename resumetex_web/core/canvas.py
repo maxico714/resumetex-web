@@ -21,6 +21,7 @@ class LayoutPreset:
     id: str
     name: str
     ats_class: str = "ats"                 # "ats" | "creative"
+    starter: bool = False                  # bundled content that can be edited in canvas
     best_for: list[str] = field(default_factory=list)
     summary: str = ""
     why: str = ""
@@ -48,6 +49,7 @@ class LayoutPreset:
     def as_dict(self) -> dict:
         return {
             "id": self.id, "name": self.name, "atsClass": self.ats_class,
+            "starter": self.starter,
             "bestFor": self.best_for, "summary": self.summary, "why": self.why,
             "notes": self.notes, "sectionOrder": self.section_order,
             "headerStyle": self.header_style, "entryStyle": self.entry_style,
@@ -90,6 +92,10 @@ def _section_format(preset: LayoutPreset) -> str:
     accent = preset.accent
     kind = preset.section_title
     if kind == "smallcaps":
+        if accent:
+            return (f"\\titleformat{{\\section}}{{\\vspace{{-4pt}}\\scshape\\bfseries"
+                    f"\\color{{{accent}}}\\large}}{{}}{{0em}}{{}}"
+                    f"[\\color{{{accent}}}\\titlerule \\vspace{{-5pt}}]")
         return "\\titleformat{\\section}{\\vspace{-4pt}\\scshape\\raggedright\\large}{}{0em}{}[\\titlerule \\vspace{-5pt}]"
     if kind == "bold":
         return "\\titleformat{\\section}{\\vspace{-3pt}\\raggedright\\large\\bfseries}{}{0em}{}[\\titlerule \\vspace{-4pt}]"
@@ -125,42 +131,83 @@ def _contact_parts(pii) -> tuple[list[str], list[str]]:
     return primary, links
 
 
-def build_header(preset: LayoutPreset, pii) -> str:
-    """Build the contact header locally, using the preset's accent colour."""
+def build_header(preset: LayoutPreset, pii, headline: str = "") -> str:
+    """Build the contact header locally, using the preset's accent colour.
+
+    ``headline`` is the optional professional title shown under (or beside) the
+    name. It is resume content, not a contact field, so it stays in the browser
+    exactly like the rest of the body.
+    """
     name = escape_text((pii.name or "").strip() or "Name")
+    title = escape_text((headline or "").strip())
     accent = preset.accent
     primary, links = _contact_parts(pii)
 
+    def name_style(size: str) -> str:
+        if accent:
+            return f"{{\\color{{{accent}}}{size}\\bfseries {name}}}"
+        return f"{{{size}\\bfseries {name}}}"
+
+    def title_style() -> str:
+        if accent:
+            return f"{{\\large\\itshape\\color{{{accent}}} {title}}}"
+        return f"{{\\large\\itshape {title}}}"
+
     if preset.header_style == "left":
-        name_cmd = (f"{{\\color{{{accent}}}\\LARGE\\bfseries {name}}}" if accent
-                    else f"{{\\LARGE\\bfseries {name}}}")
         parts = primary + links
-        lines = ["\\begin{flushleft}", name_cmd + "\\\\[2pt]"]
+        lines = ["\\begin{flushleft}", name_style("\\LARGE") + "\\\\[1pt]"]
+        if title:
+            lines.append(title_style() + "\\\\[2pt]")
         if parts:
             lines.append("\\small " + " $|$ ".join(parts))
         lines.append("\\end{flushleft}")
+        return "\n".join(lines)
+
+    if preset.header_style == "executive":
+        # Name left, title right, double rule, centred contact line. This mirrors
+        # the bundled Executive starter while staying a single-column document.
+        lines = ["\\noindent"]
+        if title:
+            lines.append(name_style("\\Huge") + "\\hfill" + title_style() + "\\par")
+        else:
+            lines.append(name_style("\\Huge") + "\\par")
+        lines.append("\\vspace{3pt}")
+        if accent:
+            lines.append(f"{{\\color{{{accent}}}\\rule{{\\linewidth}}{{1.4pt}}}}\\par")
+            lines.append("\\vspace{1.5pt}")
+            lines.append(f"{{\\color{{{accent}}}\\rule{{\\linewidth}}{{0.4pt}}}}\\par")
+        else:
+            lines.append("\\rule{\\linewidth}{1.4pt}\\par")
+            lines.append("\\vspace{1.5pt}")
+            lines.append("\\rule{\\linewidth}{0.4pt}\\par")
+        lines.append("\\vspace{2pt}")
+        parts = primary + links
+        if parts:
+            lines.append("\\begin{center}\\small " + " $|$ ".join(parts) + "\\end{center}")
         return "\n".join(lines)
 
     if preset.header_style == "two-column":
         # Creative only: a tabular header is readable by humans but not by every parser.
         right = primary + links
         row_right = " $|$ ".join(right)
+        rows = [f"{name_style('\\LARGE')} & {row_right} \\\\"]
+        if title:
+            rows.append(f"{title_style()} & \\\\")
         return ("\\begin{tabular*}{\\textwidth}{l@{\\extracolsep{\\fill}}r}\n"
-                f"\\textbf{{\\LARGE {name}}} & {row_right} \\\\\n"
-                "\\end{tabular*}")
+                + "\n".join(rows) + "\n\\end{tabular*}")
 
     # centered
-    name_cmd = (f"{{\\color{{{accent}}}\\LARGE\\bfseries {name}}}" if accent
-                else f"{{\\LARGE\\bfseries {name}}}")
     separator = " $|$ "
-    lines: list[str] = []
+    out = ["\\begin{center}", name_style("\\LARGE") + "\\\\[1pt]"]
+    if title:
+        out.append(title_style() + "\\\\[2pt]")
+    contact_lines: list[str] = []
     if primary:
-        lines.append(separator.join(primary))
+        contact_lines.append(separator.join(primary))
     if links:
-        lines.append(separator.join(links))
-    out = ["\\begin{center}", name_cmd + "\\\\[2pt]"]
-    for index, line in enumerate(lines):
-        out.append("\\small " + line + ("\\\\" if index < len(lines) - 1 else ""))
+        contact_lines.append(separator.join(links))
+    for index, line in enumerate(contact_lines):
+        out.append("\\small " + line + ("\\\\" if index < len(contact_lines) - 1 else ""))
     out.append("\\end{center}")
     return "\n".join(out)
 
@@ -197,6 +244,12 @@ def _entry(entry: dict[str, Any], preset: LayoutPreset) -> list[str]:
         out.append("\\textbf{" + escape_text(headline) + "}\\\\")
         meta = " $|$ ".join(p for p in (location, dates) if p)
         out.append("\\textit{" + escape_text(meta) + "}\\\\")
+    elif preset.entry_style == "company-first":
+        # Company on the first line, then the role and location (Executive pack).
+        out.append("\\textbf{" + escape_text(company or role) + "} \\hfill \\textit{" + escape_text(dates) + "}\\\\")
+        second = ", ".join(p for p in (role, location) if p)
+        if second:
+            out.append("\\textit{" + escape_text(second) + "}\\\\")
     elif preset.entry_style == "timeline":
         # Date rail next to the entry. Looks good to a human, costs ATS points.
         out.append("\\textbf{" + escape_text(headline) + "}\\\\")
@@ -292,7 +345,7 @@ def render_body(data: dict[str, Any], preset: LayoutPreset) -> str:
 
 def render_document(data: dict[str, Any], preset: LayoutPreset, pii) -> str:
     """Full document: preamble + local header + rendered body."""
-    header = _header(preset, pii)
+    header = _header(preset, pii, str(data.get("headline") or ""))
     body = render_body(data, preset)
     return (build_preamble(preset) + "\n\\begin{document}\n" + header + "\n" + body
             + "\n\\end{document}\n")
@@ -301,6 +354,7 @@ def render_document(data: dict[str, Any], preset: LayoutPreset, pii) -> str:
 def sample_data() -> dict[str, Any]:
     """A complete, placeholder-free sample used to score gallery templates."""
     return {
+        "headline": "Data Analyst",
         "summary": ("Data analyst with 5+ years of experience turning product and operational "
                     "data into decisions. Skilled in SQL, Python and Power BI, with a track "
                     "record of cutting reporting time by 30% and improving forecast accuracy "
@@ -349,6 +403,78 @@ def sample_data() -> dict[str, Any]:
         ],
         "achievements": ["Winner, inter-college analytics hackathon (2023)"],
         "languages": ["English (Fluent)", "Hindi (Native)", "Urdu (Fluent)"],
+    }
+
+
+def starter_data() -> dict[str, Any]:
+    """Editable content for the three bundled starter packs.
+
+    Deliberately contains **no contact details and no real person's private
+    information**. Users replace the sample text with their own, or use the
+    blank canvas fields. Keeping defaults generic is important because this
+    repository is public.
+    """
+    return {
+        "headline": "Senior Software Developer",
+        "summary": ("Software developer with 7+ years of experience building Python, Java and "
+                    "full-stack web products with Flask, React and SQL. Comfortable owning a "
+                    "feature end to end, from database design and APIs to tested, accessible "
+                    "interfaces."),
+        "skills": [
+            {"label": "Languages", "items": ["Python", "SQL", "Java", "C++", "C#"]},
+            {"label": "Frameworks & Web", "items": ["Flask", "React", ".NET 8", "Full-stack web"]},
+            {"label": "Tools & DevOps", "items": ["Git", "GitHub Actions", "Docker", "LaTeX"]},
+            {"label": "AI & Data", "items": ["LLM evaluation", "RLHF ranking", "AI code review", "Prompt design"]},
+        ],
+        "experience": [
+            {"role": "Freelance Software Developer & AI Training Specialist",
+             "company": "Self-employed", "location": "Remote", "dates": "2024 - Present",
+             "bullets": [
+                 "Reviewed and ranked 1,200+ LLM responses for correctness, instruction following and clarity using structured rubrics.",
+                 "Reviewed 300+ AI-generated bug fixes for open-source Python codebases and flagged defects, regressions and missing tests.",
+                 "Delivered 6 full-stack projects with Flask, React and SQL from requirements to hand-over.",
+             ]},
+            {"role": "Senior Software Developer", "company": "Product engineering team",
+             "location": "Bengaluru, India", "dates": "2022 - 2024",
+             "bullets": [
+                 "Led delivery of a customer-facing web module used by 2,000+ people, reducing manual processing time by 30%.",
+                 "Improved release reliability with automated tests and CI checks, cutting escaped defects by 25%.",
+                 "Trained 3 developers and owned code review and release quality for the team.",
+             ]},
+            {"role": "Software Developer", "company": "Enterprise services team",
+             "location": "Pune, India", "dates": "2019 - 2022",
+             "bullets": [
+                 "Built and maintained Python and SQL services for 4 enterprise clients across two domains.",
+                 "Reduced query time by 40% by redesigning reports and adding targeted database indexes.",
+                 "Collaborated in an Agile team of 8 covering testing, reviews and production releases.",
+             ]},
+        ],
+        "projects": [
+            {"role": "Desktop File Finder", "company": "Open source", "location": "",
+             "dates": "2024",
+             "bullets": [
+                 "Built an offline Windows file-search tool with a global hotkey and an in-memory index of 1M+ filenames.",
+                 "Shipped CI, tagged releases and 20 end-to-end UI tests; MIT licensed.",
+             ]},
+            {"role": "Privacy-first Resume Builder", "company": "Open source", "location": "",
+             "dates": "2026",
+             "bullets": [
+                 "Built a privacy-first resume builder that generates ATS-safe LaTeX and compiles PDFs with pdflatex.",
+                 "Introduced a local ATS analyser, an 18-template gallery and a Docker deployment gate.",
+             ]},
+        ],
+        "education": [
+            {"role": "B.E. in Information Technology", "company": "State Technical University",
+             "location": "Bengaluru, India", "dates": "2015 - 2019", "bullets": []},
+        ],
+        "certifications": [
+            {"role": "Python 3 Programming Specialization",
+             "company": "University of Michigan (Coursera)", "dates": ""},
+        ],
+        "achievements": [
+            "Shipped two MIT-licensed developer tools used on Windows and the web.",
+        ],
+        "languages": ["English (Fluent)", "Hindi (Native)"],
     }
 
 

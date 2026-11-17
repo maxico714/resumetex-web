@@ -69,21 +69,33 @@
     return "\\href{" + escapeUrl(url) + "}{\\underline{" + escapeText(display) + "}}";
   }
 
-  /* Build the contact header for a house style.
-   * accent overrides the colour name (the gallery presets carry their own). */
-  function buildHeader(style, pii, accent) {
+  /* Build the contact header for a house style or a gallery preset.
+   * accent overrides the colour name (the gallery presets carry their own).
+   * headline is the optional professional title; headerStyle mirrors the
+   * preset's centered/left/executive/two-column layout. */
+  function buildHeader(style, pii, accent, headline, headerStyle) {
     pii = pii || {};
     var name = (pii.name || "").trim() || "Name";
+    var title = escapeText((headline || "").trim());
     var colorName = accent || null;
-    var nameLine;
-    if (colorName) {
-      nameLine = "{\\color{" + colorName + "}\\LARGE\\bfseries " + escapeText(name) + "}";
-    } else if (style === "times") {
-      nameLine = "{\\color{linkcolour}\\Large\\bfseries " + escapeText(name) + "}";
-    } else if (style === "compact") {
-      nameLine = "{\\Large\\bfseries " + escapeText(name) + "}";
-    } else {
-      nameLine = "{\\LARGE\\bfseries " + escapeText(name) + "}";
+    var layout = headerStyle || "centered";
+
+    function nameLine(size) {
+      if (colorName) {
+        return "{\\color{" + colorName + "}" + size + "\\bfseries " + escapeText(name) + "}";
+      }
+      if (style === "times" && !headerStyle) {
+        return "{\\color{linkcolour}\\Large\\bfseries " + escapeText(name) + "}";
+      }
+      return "{" + size + "\\bfseries " + escapeText(name) + "}";
+    }
+
+    function titleLine() {
+      if (!title) return "";
+      if (colorName) {
+        return "{\\large\\itshape\\color{" + colorName + "} " + title + "}";
+      }
+      return "{\\large\\itshape " + title + "}";
     }
 
     var primary = [];
@@ -102,11 +114,55 @@
     }
 
     var separator = style === "times" ? " \\,$\\cdot$\\, " : " $|$ ";
+
+    if (layout === "left") {
+      var leftParts = primary.concat(links);
+      var left = ["\\begin{flushleft}", nameLine("\\LARGE") + "\\\\[1pt]"];
+      if (title) left.push(titleLine() + "\\\\[2pt]");
+      if (leftParts.length) left.push("\\small " + leftParts.join(separator));
+      left.push("\\end{flushleft}");
+      return left.join("\n");
+    }
+
+    if (layout === "executive") {
+      var exec = ["\\noindent"];
+      if (title) {
+        exec.push(nameLine("\\Huge") + "\\hfill" + titleLine() + "\\par");
+      } else {
+        exec.push(nameLine("\\Huge") + "\\par");
+      }
+      exec.push("\\vspace{3pt}");
+      if (colorName) {
+        exec.push("{\\color{" + colorName + "}\\rule{\\linewidth}{1.4pt}}\\par");
+        exec.push("\\vspace{1.5pt}");
+        exec.push("{\\color{" + colorName + "}\\rule{\\linewidth}{0.4pt}}\\par");
+      } else {
+        exec.push("\\rule{\\linewidth}{1.4pt}\\par");
+        exec.push("\\vspace{1.5pt}");
+        exec.push("\\rule{\\linewidth}{0.4pt}\\par");
+      }
+      exec.push("\\vspace{2pt}");
+      var execParts = primary.concat(links);
+      if (execParts.length) {
+        exec.push("\\begin{center}\\small " + execParts.join(separator) + "\\end{center}");
+      }
+      return exec.join("\n");
+    }
+
     var lines = [];
     if (primary.length) lines.push(primary.join(separator));
     if (links.length) lines.push(links.join(separator));
 
-    var out = ["\\begin{center}", nameLine + "\\\\[2pt]"];
+    if (layout === "two-column") {
+      var right = primary.concat(links).join(separator);
+      var rows = [nameLine("\\LARGE") + " & " + right + " \\\\"];
+      if (title) rows.push(titleLine() + " & \\\\");
+      return "\\begin{tabular*}{\\textwidth}{l@{\\extracolsep{\\fill}}r}\n" +
+        rows.join("\n") + "\n\\end{tabular*}";
+    }
+
+    var out = ["\\begin{center}", nameLine("\\LARGE") + "\\\\[1pt]"];
+    if (title) out.push(titleLine() + "\\\\[2pt]");
     lines.forEach(function (line, index) {
       out.push("\\small " + line + (index < lines.length - 1 ? "\\\\" : ""));
     });

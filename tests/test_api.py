@@ -1,5 +1,7 @@
 """HTTP-level tests: the app must work, and must not store anything."""
 
+import base64
+import json
 import os
 import sys
 import unittest
@@ -51,11 +53,31 @@ class ApiTests(unittest.TestCase):
 
     def test_templates_endpoint_lists_gallery(self):
         data = self.client.get("/api/templates").get_json()
-        self.assertEqual(len(data["house"]), 15)
-        self.assertEqual(len(data["atsSafe"]), 12)
+        self.assertEqual(len(data["house"]), 18)
+        self.assertEqual(len(data["atsSafe"]), 15)
+        self.assertEqual(len(data["creative"]), 3)
+        self.assertEqual(len(data["starters"]), 3)
+        self.assertTrue(data["starterData"]["experience"])
         for entry in data["house"]:
             self.assertIn("atsScore", entry)
             self.assertGreaterEqual(entry["atsScore"], 0)
+            self.assertIn("starter", entry)
+
+    def test_starter_content_is_not_personal_data(self):
+        data = self.client.get("/api/templates").get_json()
+        blob = str(data["starterData"]).lower()
+        for needle in ("@gmail.com", "linkedin.com/in/", "+91"):
+            self.assertNotIn(needle, blob)
+
+    def test_canvas_render_returns_layout_metadata(self):
+        response = self.client.post("/api/canvas/render", json={
+            "presetId": "starter-executive",
+            "data": {"summary": "Engineer.", "headline": "Senior Developer"},
+        })
+        data = response.get_json()
+        self.assertEqual(data["headerStyle"], "executive")
+        self.assertEqual(data["entryStyle"], "company-first")
+        self.assertEqual(data["accent"], "starterburgundy")
 
     def test_ats_score_endpoint(self):
         response = self.client.post("/api/ats/score", json={"body": "\\section{Summary}\nHi."})
@@ -126,6 +148,46 @@ class ApiTests(unittest.TestCase):
                 "/api/compile", json={"tex": "\\documentclass{article}", "mode": "auto"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(online.call_count, 0)
+
+    def test_compile_stream_reports_stages_and_pdf(self):
+        app = create_app(Config(allow_compile=True, allow_online_compile=False))
+        fake = CompileResult(pdf=b"%PDF-1.4 streamed", engine="pdflatex (local)", pages=1)
+        with mock.patch("resumetex_web.api.compile_local", return_value=fake):
+            response = app.test_client().post(
+                "/api/compile/stream", json={"tex": "\\documentclass{article}", "mode": "local"})
+            payload = response.data  # the stream is consumed here, inside the patch
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/x-ndjson", response.headers["Content-Type"])
+        events = [json.loads(line) for line in payload.decode("utf-8").splitlines() if line.strip()]
+        self.assertEqual(events[0]["type"], "start")
+        self.assertEqual(events[-1]["type"], "done")
+        self.assertEqual(events[-1]["pages"], 1)
+        self.assertFalse(events[-1]["online"])
+        self.assertEqual(base64.b64decode(events[-1]["pdf"]), b"%PDF-1.4 streamed")
+        stages = [e["stage"] for e in events if e["type"] == "stage"]
+        self.assertIn("local", stages)
+        self.assertIn("preview", stages)
+        progress = [e["progress"] for e in events]
+        self.assertEqual(progress, sorted(progress))
+
+    def test_compile_stream_error_is_a_json_event(self):
+        app = create_app(Config(allow_compile=True, allow_online_compile=False))
+        with mock.patch("resumetex_web.api.compile_local",
+                        side_effect=CompileError("titlesec.sty missing")):
+            response = app.test_client().post(
+                "/api/compile/stream", json={"tex": "\\documentclass{article}", "mode": "local"})
+            payload = response.data
+        self.assertEqual(response.status_code, 200)
+        events = [json.loads(line) for line in payload.decode("utf-8").splitlines() if line.strip()]
+        self.assertEqual(events[-1]["type"], "error")
+        self.assertIn("titlesec.sty", events[-1]["message"])
+        self.assertEqual(events[-1]["code"], "compile_error")
+
+    def test_compile_stream_respects_the_same_gates(self):
+        response = self.client.post(
+            "/api/compile/stream", json={"tex": "\\documentclass{article}"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.get_json()["code"], "compile_disabled")
 
     def test_diagnose_reports_engine_without_personal_data(self):
         app = create_app(Config(allow_compile=True, allow_online_compile=False))

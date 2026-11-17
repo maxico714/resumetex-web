@@ -119,9 +119,9 @@ def _jd_keywords(jd: str) -> list[str]:
     return [k for k in _keywords(jd) if len(k) > 3][:60]
 
 
-def _extract_sections(body: str) -> list[str]:
-    """Section titles, brace-aware (so \\section{\\MakeUppercase{Profile}} works)."""
-    titles: list[str] = []
+def _section_spans(body: str) -> list[tuple[str, int]]:
+    """Raw section title and the index where its content starts, brace-aware."""
+    spans: list[tuple[str, int]] = []
     index = 0
     marker = "\\section{"
     while True:
@@ -137,9 +137,27 @@ def _extract_sections(body: str) -> list[str]:
             elif char == "}" and body[cursor - 1] != "\\":
                 depth -= 1
             cursor += 1
-        titles.append(body[start + len(marker):cursor - 1].strip())
+        spans.append((body[start + len(marker):cursor - 1].strip(), cursor))
         index = cursor
-    return titles
+    return spans
+
+
+def _extract_sections(body: str) -> list[str]:
+    """Section titles, brace-aware (so \\section{\\MakeUppercase{Profile}} works)."""
+    return [raw for raw, _ in _section_spans(body)]
+
+
+def _section_blocks(body: str) -> list[tuple[str, str]]:
+    """Every section as (unwrapped name, block text including its heading)."""
+    spans = _section_spans(body)
+    blocks: list[tuple[str, str]] = []
+    for i, (raw, content_start) in enumerate(spans):
+        inner = _SECTION_NAME_RE.search(raw)
+        name = ((inner.group(1) or inner.group(2) or "").strip() if inner else raw.strip())
+        end = spans[i + 1][1] if i + 1 < len(spans) else len(body)
+        header_start = body.rfind("\\section{", 0, content_start)
+        blocks.append((name, body[header_start:end]))
+    return blocks
 
 
 def _section_names(body: str) -> list[str]:
@@ -239,12 +257,9 @@ def analyze(latex_body: str, job_description: str | None = None) -> AtsReport:
     # 6. skills block (10)
     if "skills" in section_names:
         score += 5
-        skill_lines = 0
-        for name in sections:
-            if name.lower() == "skills":
-                block = body.split("\\section{" + name, 1)[-1]
-                block = block.split("\\section{", 1)[0]
-                skill_lines = len([ln for ln in block.split("\n") if ln.strip()])
+        block = next((text for name, text in _section_blocks(body)
+                      if name.lower() == "skills"), "")
+        skill_lines = len([ln for ln in block.split("\n") if ln.strip()])
         if skill_lines >= 4:
             score += 5
         else:

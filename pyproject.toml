@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "resumetex-web"
-version = "0.2.0"
+version = "0.3.0"
 description = "A private, local-first resume builder. Your contact details never reach the AI model."
 readme = "README.md"
 requires-python = ">=3.10"

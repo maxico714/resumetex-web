@@ -142,6 +142,50 @@ _PRESETS: list[LayoutPreset] = [
         header_style="centered", entry_style="bold-hfill",
         notes="Calm colour for care-sector CVs.",
     ),
+    # ---------------------------------------------------------- Starter packs (3)
+    # The layouts from the bundled resumes.zip. Contact details are intentionally
+    # absent from the default content: users fill them in locally in the canvas.
+    LayoutPreset(
+        id="starter-classic", name="Starter Classic", ats_class="ats", starter=True,
+        best_for=["Software", "Engineering", "Any professional"],
+        summary="The clean one-column classic: Times, uppercase headings and a thin rule.",
+        why="Maximum ATS safety: no colour, no table, no side column, standard headings.",
+        class_options="10pt,a4paper",
+        geometry="margin=0.65in,top=0.5in,bottom=0.5in",
+        font_lines=["\\usepackage{mathptmx}"],
+        accent=None, section_title="upper-rule", header_style="centered",
+        entry_style="bold-hfill",
+        bullet_options="leftmargin=1.15em,itemsep=1.5pt,topsep=2pt,parsep=0pt,partopsep=0pt",
+        notes="Comes with editable sample content in the canvas.",
+    ),
+    LayoutPreset(
+        id="starter-navy", name="Starter Modern Navy", ats_class="ats", starter=True,
+        best_for=["Software", "Product", "Data"],
+        summary="Sans-serif name block with a deep navy rule and uppercase section headings.",
+        why="Colour and spacing only, still single column and parser-friendly.",
+        class_options="10pt,a4paper",
+        geometry="margin=0.7in,top=0.5in,bottom=0.5in",
+        font_lines=["\\usepackage[scaled=0.92]{helvet}",
+                    "\\renewcommand{\\familydefault}{\\sfdefault}"],
+        accent="starternavy", accent_rgb="31,58,95", section_title="upper-rule",
+        header_style="left", entry_style="bold-hfill",
+        bullet_options="leftmargin=1.1em,itemsep=1.5pt,topsep=2pt,parsep=0pt,partopsep=0pt",
+        notes="Modern look without a sidebar or table.",
+    ),
+    LayoutPreset(
+        id="starter-executive", name="Starter Executive", ats_class="ats", starter=True,
+        best_for=["Senior roles", "Leadership", "Consulting"],
+        summary="Palatino serif, burgundy small-caps headings and a double-rule header.",
+        why="Formal and calm; the two rules are decorative but the text stays linear.",
+        class_options="10pt,a4paper",
+        geometry="margin=0.62in,top=0.45in,bottom=0.45in",
+        font_lines=["\\usepackage{mathpazo}"],
+        accent="starterburgundy", accent_rgb="122,31,43",
+        section_title="smallcaps", header_style="executive",
+        entry_style="company-first", line_spacing="1.0",
+        bullet_options="leftmargin=1.2em,itemsep=1pt,topsep=1.5pt,parsep=0pt,partopsep=0pt",
+        notes="Summary-first layout for experienced candidates.",
+    ),
     # ---------------------------------------------------------- Creative (3)
     LayoutPreset(
         id="cr-sidebar", name="Sidebar Skills", ats_class="creative",
@@ -181,6 +225,8 @@ GALLERY: dict[str, LayoutPreset] = {p.id: p for p in _PRESETS}
 def _score_preset(preset: LayoutPreset) -> dict:
     # Score the complete document (preamble + header + body), because ATS risk
     # lives in the layout too — a tabular header or a column breaks parsing.
+    # Every preset is scored with the same sample content so the number reflects
+    # the layout, not the length of a particular starter pack.
     document = render_document(sample_data(), preset, _SAMPLE_PII)
     report = analyze(document)
     return {

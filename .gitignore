@@ -23,3 +23,6 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# Local source material (contains personal contact details — never commit)
+resumes.zip

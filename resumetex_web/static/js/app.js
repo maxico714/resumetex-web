@@ -36,10 +36,19 @@
     tex: "",
     pdfBlob: null,
     templates: [],
+    starterData: {},
     houseShells: {},
     promptTemplate: "",
     promptContract: "",
-    serverNotice: null
+    serverNotice: null,
+    progressFromServer: false,
+    progressValue: 0,
+    compileStarted: 0,
+    compileFinished: false,
+    compileTicker: null,
+    waitStage: -1,
+    lastFeedMessage: "",
+    lastFeedTime: 0
   };
 
   // ---------------------------------------------------------------- helpers
@@ -252,7 +261,9 @@
       box.appendChild(row);
     });
     if (!(report.issues || []).length) {
-      box.appendChild(el("div", "issue info", "<b>Nothing flagged.</b><span class=\"fix\">This CV passes every local ATS check.</span>"));
+      var emptyRow = el("div", "issue info");
+      emptyRow.innerHTML = "<b>Nothing flagged.</b><span class=\"fix\">This CV passes every local ATS check.</span>";
+      box.appendChild(emptyRow);
     }
   }
 
@@ -269,6 +280,12 @@
     state.pdfBlob = null;
     var box = $("pdfBox");
     if (box) box.innerHTML = '<p class="small">The compiled PDF appears here.</p>';
+    if ($("btn_download_pdf")) $("btn_download_pdf").disabled = true;
+    if ($("compileProgress")) {
+      $("compileProgress").hidden = true;
+      if (state.compileTicker) clearInterval(state.compileTicker);
+      state.compileTicker = null;
+    }
     if ($("engineNote")) $("engineNote").textContent = "";
     if ($("compileStatus")) {
       setNotice($("compileStatus"), null, null);
@@ -337,6 +354,7 @@
 
   // ---------------------------------------------------------- canvas flow
   function fillCanvas(data) {
+    $("c_headline").value = data.headline || "";
     $("c_summary").value = data.summary || "";
     $("c_skills").value = (data.skills || []).map(function (group) {
       return (group.label ? group.label + ": " : "") + (group.items || []).join(", ");
@@ -423,6 +441,7 @@
     }).filter(function (s) { return s; });
 
     var data = {
+      headline: $("c_headline").value.trim(),
       summary: $("c_summary").value,
       skills: skills,
       experience: readEntries($("c_experience")),
@@ -435,20 +454,27 @@
         .filter(function (line) { return line.length; })
     };
 
-    postJson("/api/canvas/render", {
+    return postJson("/api/canvas/render", {
       data: data,
       presetId: $("f_template").value,
       jobDescription: $("f_jd").value
     }).then(function (result) {
       state.body = result.body;
       var header = window.ResumeTexLatex.buildHeader(
-        "navy", collectPii(), result.accent || null);
+        "navy", collectPii(), result.accent || null,
+        data.headline, result.headerStyle || null);
       state.tex = (result.preamble + "\n\\begin{document}\n" + header + "\n" + result.body +
         "\n\\end{document}\n").replace(/\n{3,}/g, "\n\n");
       setTex(state.tex);
       showAts(result.ats);
-      setTab("tex");
-    }).catch(function (err) { setNotice($("aiWarnings"), "bad", err.message); });
+      var item = templateById($("f_template").value);
+      compileNotice("good", "LaTeX is ready" + (item ? " with " + item.name : "") +
+        ". Edit more fields or press <b>Compile PDF</b> to build the PDF.");
+      return true;
+    }).catch(function (err) {
+      setNotice($("aiWarnings"), "bad", err.message);
+      return false;
+    });
   }
 
   // -------------------------------------------------------------- compiling
@@ -483,12 +509,305 @@
     return window.confirm(message);
   }
 
+  // ------------------------------------------------------ compile progress
+  var COMPILE_STEPS = ["prepare", "compile", "preview"];
+  var COMPILE_ACTIVE_AT = { prepare: 5, compile: 28, preview: 90 };
+  var COMPILE_DONE_AT = { prepare: 28, compile: 90, preview: 100 };
+
+  function compileModeLabel(mode) {
+    if (mode === "online") return "the online compiler";
+    if (mode === "auto") return "automatic mode (server first)";
+    return "private server mode";
+  }
+
+  function compileFeed(message, tone) {
+    var feed = $("compileFeed");
+    if (!feed) return;
+    var now = Date.now();
+    if (message === state.lastFeedMessage && now - state.lastFeedTime < 1200) return;
+    state.lastFeedMessage = message;
+    state.lastFeedTime = now;
+    var row = el("div", "feed-row " + (tone || "info"));
+    row.appendChild(el("span", "feed-time", ((now - state.compileStarted) / 1000).toFixed(1) + "s"));
+    row.appendChild(el("span", "feed-msg", message));
+    feed.appendChild(row);
+    while (feed.children.length > 40) feed.removeChild(feed.firstChild);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  function setCompileProgress(progress, label) {
+    progress = Math.max(0, Math.min(100, Math.round(progress)));
+    state.progressValue = Math.max(state.progressValue, progress);
+    var value = state.progressValue;
+    var bar = $("progressBar");
+    var track = $("progressTrack");
+    if (!bar || !track) return;
+    bar.style.width = value + "%";
+    track.setAttribute("aria-valuenow", String(value));
+    if (label && $("progressLabel")) $("progressLabel").textContent = label;
+    var steps = $("progressSteps");
+    if (!steps) return;
+    COMPILE_STEPS.forEach(function (step) {
+      var item = steps.querySelector('[data-step="' + step + '"]');
+      if (!item) return;
+      item.classList.toggle("active", value >= COMPILE_ACTIVE_AT[step] && value < COMPILE_DONE_AT[step]);
+      item.classList.toggle("done", value >= COMPILE_DONE_AT[step]);
+    });
+  }
+
+  function resetCompileProgress(mode) {
+    var box = $("compileProgress");
+    if (!box) return;
+    box.hidden = false;
+    box.classList.remove("failed", "complete");
+    if ($("compileFeed")) $("compileFeed").innerHTML = "";
+    state.progressFromServer = false;
+    state.progressValue = 0;
+    state.compileStarted = Date.now();
+    state.compileFinished = false;
+    state.waitStage = -1;
+    state.lastFeedMessage = "";
+    state.lastFeedTime = 0;
+    if ($("progressTime")) $("progressTime").textContent = "0.0s";
+    setCompileProgress(5, "Contacting the server…");
+    compileFeed("Compile started in " + compileModeLabel(mode) + ".", "info");
+    if (state.compileTicker) clearInterval(state.compileTicker);
+
+    // Local clock and stage rotation. The server stream overrides both as soon
+    // as its first event arrives, so this is only the waiting experience.
+    var stages = [
+      [0, "Contacting the server…"],
+      [1, "Starting the compiler…"],
+      [5, "Compiling with pdflatex…"],
+      [15, "Still compiling — a free instance may be waking up…"],
+      [45, "Still compiling — almost there…"]
+    ];
+    state.compileTicker = setInterval(function () {
+      if (state.compileFinished) return;
+      var seconds = (Date.now() - state.compileStarted) / 1000;
+      if ($("progressTime")) $("progressTime").textContent = seconds.toFixed(1) + "s";
+      if (state.progressFromServer) return;
+      var index = 0;
+      for (var i = 0; i < stages.length; i++) if (seconds >= stages[i][0]) index = i;
+      if ($("progressLabel")) $("progressLabel").textContent = stages[index][1];
+      if (index !== state.waitStage) {
+        state.waitStage = index;
+        compileFeed(stages[index][1], index >= 3 ? "warn" : "info");
+      }
+    }, 100);
+  }
+
+  function finishCompileProgress(ok, label) {
+    state.compileFinished = true;
+    if (state.compileTicker) clearInterval(state.compileTicker);
+    state.compileTicker = null;
+    if ($("progressTime") && state.compileStarted) {
+      $("progressTime").textContent = ((Date.now() - state.compileStarted) / 1000).toFixed(1) + "s";
+    }
+    var box = $("compileProgress");
+    if (!box) return;
+    if (ok) {
+      setCompileProgress(100, label);
+      box.classList.add("complete");
+    } else {
+      box.classList.add("failed");
+      if ($("progressLabel")) $("progressLabel").textContent = label;
+      var active = $("progressSteps") && $("progressSteps").querySelector("li.active");
+      if (active) {
+        active.classList.remove("active");
+        active.classList.add("failed");
+      }
+    }
+  }
+
+  function base64ToBlob(base64, type) {
+    var binary = window.atob(base64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: type || "application/pdf" });
+  }
+
+  // Read newline-delimited JSON from a streaming response, one event at a time.
+  function consumeNdjson(response, onEvent) {
+    return new Promise(function (resolve, reject) {
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+      function dispatch(line) {
+        line = line.trim();
+        if (!line) return;
+        var event;
+        try { event = JSON.parse(line); } catch (e) { return; }
+        onEvent(event);
+      }
+      function pump() {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) {
+            buffer += decoder.decode();
+            if (buffer.trim()) dispatch(buffer);
+            resolve();
+            return;
+          }
+          buffer += decoder.decode(chunk.value, { stream: true });
+          var lines = buffer.split("\n");
+          buffer = lines.pop();
+          lines.forEach(dispatch);
+          return pump();
+        });
+      }
+      pump().catch(reject);
+    });
+  }
+
+  function streamCompile(tex, mode, signal) {
+    return fetch("/api/compile/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tex: tex, mode: mode }),
+      signal: signal
+    }).then(function (response) {
+      var type = response.headers.get("content-type") || "";
+      if (!response.ok || type.indexOf("application/x-ndjson") < 0) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          var error = new Error(data.error || ("Compile failed (HTTP " + response.status + ")."));
+          error.code = (response.status === 404 || response.status === 405)
+            ? "stream_unsupported" : (data.code || ("http_" + response.status));
+          throw error;
+        });
+      }
+      if (!response.body || !response.body.getReader || typeof TextDecoder === "undefined") {
+        var unsupported = new Error("This browser cannot read a streaming compile response.");
+        unsupported.code = "stream_unsupported";
+        throw unsupported;
+      }
+      return new Promise(function (resolve, reject) {
+        var settled = false;
+        function succeed(event) {
+          if (settled) return;
+          settled = true;
+          if (!event.pdf) {
+            var missing = new Error("The server finished without sending the PDF.");
+            missing.code = "compile_error";
+            reject(missing);
+            return;
+          }
+          resolve({
+            blob: base64ToBlob(event.pdf),
+            pages: event.pages,
+            engine: event.engine,
+            online: Boolean(event.online),
+            bytes: event.bytes
+          });
+        }
+        function fail(error) {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        }
+        function handle(event) {
+          if (event.type === "done") {
+            state.progressFromServer = true;
+            setCompileProgress(100, event.message || "PDF ready.");
+            compileFeed(event.message || "PDF ready.", "good");
+            succeed(event);
+            return;
+          }
+          if (event.type === "error") {
+            state.progressFromServer = true;
+            var error = new Error(event.message || "Compile failed.");
+            error.code = event.code || "compile_error";
+            fail(error);
+            return;
+          }
+          state.progressFromServer = true;
+          setCompileProgress(event.progress || state.progressValue, event.message || "Compiling…");
+          if (event.type === "heartbeat") {
+            compileFeed((event.message || "Still compiling…") +
+              " (" + Number(event.elapsed || 0).toFixed(1) + "s)", "warn");
+          } else {
+            compileFeed(event.message || "Compiling…", "info");
+          }
+        }
+        consumeNdjson(response, handle)
+          .then(function () {
+            if (!settled) {
+              var ended = new Error("The compile stream ended before the PDF arrived.");
+              ended.code = "compile_error";
+              fail(ended);
+            }
+          })
+          .catch(fail);
+      });
+    });
+  }
+
+  function legacyCompile(tex, mode, signal) {
+    return fetch("/api/compile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tex: tex, mode: mode }),
+      signal: signal
+    }).then(function (response) {
+      var type = response.headers.get("content-type") || "";
+      if (!response.ok || type.indexOf("application/pdf") < 0) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          var error = new Error(data.error || ("Compile failed (HTTP " + response.status + ")."));
+          error.code = data.code || ("http_" + response.status);
+          throw error;
+        });
+      }
+      return response.blob().then(function (blob) {
+        return {
+          blob: blob,
+          pages: response.headers.get("X-ResumeTeX-Pages") || "",
+          engine: response.headers.get("X-ResumeTeX-Engine") || "",
+          online: response.headers.get("X-ResumeTeX-Online") === "1"
+        };
+      });
+    });
+  }
+
+  function applyCompileSuccess(result) {
+    if (!result.blob || result.blob.size < 5) throw new Error("The server did not return a PDF.");
+    state.pdfBlob = result.blob;
+    if ($("btn_download_pdf")) $("btn_download_pdf").disabled = false;
+    var size = Math.max(1, Math.round(result.blob.size / 1024));
+    var pages = result.pages ? " · " + result.pages + " page(s)" : "";
+    var where = result.online
+      ? "Compiled online — your CV was uploaded to a third-party compiler."
+      : "Compiled on this server with " + (result.engine || "pdflatex") + " — no third-party upload.";
+    compileNotice("good", "PDF ready — " + size + " KB" + pages + ". " + where);
+    $("engineNote").textContent = result.engine ? "Engine: " + result.engine : "";
+    finishCompileProgress(true, "PDF ready");
+    compileFeed("PDF ready — " + size + " KB" + pages + ".", "good");
+    renderPdf(result.blob);
+    logNetwork({
+      what: "Compile",
+      detail: (result.online ? "Online compiler" : "Local pdflatex") +
+        " produced a " + size + " KB PDF" + pages
+    });
+  }
+
   function compilePdf(scrollToOutput) {
     if (scrollToOutput) {
       var card = $("outputCard");
       if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     if (!state.tex.trim()) {
+      var canvasReady = ($("c_summary").value.trim() || $("c_experience").children.length) &&
+        currentTab() === "canvas";
+      if (canvasReady) {
+        // One click from an edited canvas to a PDF: render the fields first.
+        var compileButton = $("btn_compile");
+        compileButton.disabled = true;
+        compileNotice("info", "Rendering the canvas fields, then compiling the PDF…");
+        renderCanvas().then(function (ok) {
+          compileButton.disabled = false;
+          if (ok && state.tex.trim()) compilePdf(scrollToOutput);
+          else compileNotice("warn", "The canvas could not be rendered. Add a summary or an experience entry first.");
+        });
+        return;
+      }
       compileNotice("warn", "Generate or render a CV first — there is no LaTeX source yet.");
       return;
     }
@@ -505,51 +824,26 @@
     compileNotice("info", startText + " The first compile on a free server can take up to a minute.");
     $("engineNote").textContent = startText;
     $("pdfBox").innerHTML = "";
+    resetCompileProgress(mode);
 
     // A cold free server can be slow, but it must never hang the button forever.
     var controller = window.AbortController ? new AbortController() : null;
-    var timer = controller ? setTimeout(function () { controller.abort(); }, 150000) : null;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, 180000) : null;
+    var fallbackTried = false;
 
-    fetch("/api/compile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tex: state.tex, mode: mode }),
-      signal: controller ? controller.signal : undefined
-    }).then(function (response) {
-      var type = response.headers.get("content-type") || "";
-      // Errors are JSON (including when compiling is disabled); a PDF is a blob.
-      if (!response.ok || type.indexOf("application/pdf") < 0) {
-        return response.json().catch(function () { return {}; }).then(function (data) {
-          var err = new Error(data.error || ("Compile failed (HTTP " + response.status + ")."));
-          err.code = data.code || ("http_" + response.status);
-          throw err;
+    function run() {
+      return streamCompile(state.tex, mode, controller ? controller.signal : undefined)
+        .catch(function (error) {
+          if (error.code === "stream_unsupported" && !fallbackTried && !state.progressFromServer) {
+            fallbackTried = true;
+            compileFeed("Live progress is unavailable here; using the standard compile endpoint.", "warn");
+            return legacyCompile(state.tex, mode, controller ? controller.signal : undefined);
+          }
+          throw error;
         });
-      }
-      return response.blob().then(function (blob) {
-        return {
-          blob: blob,
-          pages: response.headers.get("X-ResumeTeX-Pages") || "",
-          engine: response.headers.get("X-ResumeTeX-Engine") || "",
-          online: response.headers.get("X-ResumeTeX-Online") === "1"
-        };
-      });
-    }).then(function (result) {
-      if (!result.blob || result.blob.size < 5) throw new Error("The server did not return a PDF.");
-      state.pdfBlob = result.blob;
-      var size = Math.max(1, Math.round(result.blob.size / 1024));
-      var pages = result.pages ? " · " + result.pages + " page(s)" : "";
-      var where = result.online
-        ? "Compiled online — your CV was uploaded to a third-party compiler."
-        : "Compiled on this server with " + (result.engine || "pdflatex") + " — no third-party upload.";
-      compileNotice("good", "PDF ready — " + size + " KB" + pages + ". " + where);
-      $("engineNote").textContent = result.engine ? "Engine: " + result.engine : "";
-      renderPdf(result.blob);
-      logNetwork({
-        what: "Compile",
-        detail: (result.online ? "Online compiler" : "Local pdflatex") +
-          " produced a " + size + " KB PDF" + pages
-      });
-    }).catch(function (err) {
+    }
+
+    run().then(applyCompileSuccess).catch(function (err) {
       var message = err.name === "AbortError"
         ? "The compile timed out. Try again (a cold free server is slow), or download the .tex file and compile it locally."
         : (err.message || "Compile failed.");
@@ -562,6 +856,8 @@
       compileNotice("bad", message);
       $("engineNote").textContent = "";
       $("pdfBox").innerHTML = '<p class="small">No PDF yet — the message above explains why.</p>';
+      finishCompileProgress(false, "Compile failed");
+      compileFeed(message, "bad");
       logNetwork({ what: "Compile", detail: "Failed — " + String(message).slice(0, 120) });
     }).then(function () {
       if (timer) clearTimeout(timer);
@@ -574,6 +870,13 @@
     if (!select) return;
     var option = select.querySelector('option[value="' + value + '"]');
     if (option) option.disabled = !enabled;
+  }
+
+  function setServerStatus(text, kind) {
+    var pill = $("serverStatus");
+    if (!pill) return;
+    pill.textContent = text;
+    pill.className = "status-pill" + (kind ? " " + kind : "");
   }
 
   // Shown once at load, so a missing engine is visible before the first click.
@@ -602,6 +905,7 @@
               (onlineAllowed ? " You can pick the online compiler above, or download the .tex file and compile it locally." :
                 " Download the .tex file and compile it locally.")
           };
+          setServerStatus(onlineAllowed ? "Online compile only" : "Compile disabled", "warn");
         } else {
           var latex = health.latex || {};
           if (health.pdflatex === false || latex.found === false) {
@@ -611,17 +915,23 @@
                 (onlineAllowed ? " You can pick the online compiler above, or" : "") +
                 " download the .tex file and compile it with pdflatex or Overleaf."
             };
+            setServerStatus("No LaTeX engine", "bad");
           } else if (latex.missing && latex.missing.length) {
             state.serverNotice = { kind: "bad", html: "The server LaTeX install is incomplete — missing: " +
               latex.missing.join(", ") + ". Redeploy with the current Dockerfile, or compile the .tex locally." };
+            setServerStatus("Missing LaTeX packages", "bad");
           } else {
             $("engineNote").textContent = "Server LaTeX is ready. PDFs are compiled on this server and never sent to a third party.";
+            setServerStatus("Server ready · private", "ok");
             return;
           }
         }
         compileNotice(state.serverNotice.kind, state.serverNotice.html);
       })
-      .catch(function () { /* the compile button will report the real error */ });
+      .catch(function () {
+        setServerStatus("Server unreachable", "bad");
+        /* the compile button will report the real error */
+      });
   }
 
   function diagnose() {
@@ -768,19 +1078,117 @@
     $("btn_generate").disabled = !local && !key;
   }
 
+  function templateById(id) {
+    return state.templates.filter(function (item) { return item.id === id; })[0] || null;
+  }
+
+  function updateTemplateInfo() {
+    var select = $("f_template");
+    if (!select) return;
+    var item = templateById(select.value) || state.templates[0];
+    if (!item) return;
+    if ($("templateName")) $("templateName").textContent = item.name;
+    if ($("templateBest")) {
+      $("templateBest").textContent = (item.bestFor || []).length
+        ? "Best for: " + item.bestFor.join(", ") : "";
+    }
+    if ($("templateScore")) {
+      var score = typeof item.atsScore === "number" ? item.atsScore : "—";
+      $("templateScore").textContent = "ATS " + score +
+        (item.atsClass === "creative" ? " · creative" : " · ATS-safe");
+    }
+    if ($("templateSummary")) {
+      $("templateSummary").textContent = [item.summary, item.why].filter(Boolean).join(" ");
+    }
+    var trigger = $("btn_template_content");
+    if (trigger) {
+      var canFill = Boolean(item.starter) && Object.keys(state.starterData || {}).length > 0;
+      trigger.hidden = !canFill;
+      trigger.textContent = "Load starter content";
+    }
+  }
+
+  function loadStarterContent() {
+    var select = $("f_template");
+    var item = select ? templateById(select.value) : null;
+    if (!item || !item.starter || !Object.keys(state.starterData || {}).length) {
+      setNotice($("aiWarnings"), "warn", "This template has no starter content. Pick one of the Starter packs.");
+      return;
+    }
+    fillCanvas(state.starterData);
+    var nameField = $("f_name");
+    if (nameField && !nameField.value.trim()) nameField.focus();
+    logNetwork({ what: "Starter content", detail: item.name + " loaded into the canvas (contacts left blank)" });
+    renderCanvas();
+  }
+
+  function applyTemplateQuery() {
+    var params = new URLSearchParams(window.location.search);
+    var wanted = params.get("template");
+    var select = $("f_template");
+    if (!wanted || !select) return false;
+    var item = templateById(wanted);
+    if (!item) return false;
+    select.value = wanted;
+    updateTemplateInfo();
+    state.settings.template = wanted;
+    saveSettings();
+
+    // A starter link from the gallery should land on a ready-to-edit canvas,
+    // not an empty one. Only prefill when the user has not typed anything yet.
+    var untouched = !$("c_summary").value.trim() && !$("c_experience").children.length;
+    if (item.starter && untouched && Object.keys(state.starterData || {}).length) {
+      fillCanvas(state.starterData);
+      compileNotice("info", "Starter content loaded. Replace the sample text with your own, " +
+        "fill in your contact details, then press <b>Compile PDF</b>.");
+      logNetwork({ what: "Template link", detail: item.name + " opened with editable starter content" });
+    }
+    return true;
+  }
+
   function loadTemplates() {
     return api("/api/templates").then(function (data) {
       state.templates = data.house || [];
+      state.starterData = data.starterData || {};
       var select = $("f_template");
       select.innerHTML = "";
-      state.templates.forEach(function (item) {
-        var option = document.createElement("option");
-        option.value = item.id;
-        option.textContent = item.name + " · ATS " + item.atsScore;
-        select.appendChild(option);
+
+      function group(label, items) {
+        if (!items.length) return;
+        var box = document.createElement("optgroup");
+        box.label = label;
+        items.forEach(function (item) {
+          var option = document.createElement("option");
+          option.value = item.id;
+          option.textContent = item.name + " · ATS " + item.atsScore;
+          box.appendChild(option);
+        });
+        select.appendChild(box);
+      }
+
+      var starters = state.templates.filter(function (item) { return item.starter; });
+      var atsSafe = (data.atsSafe || []).filter(function (item) { return !item.starter; });
+      var creative = data.creative || [];
+      group("Starter packs — editable sample content", starters);
+      group("ATS-safe layouts", atsSafe);
+      group("Creative layouts (may parse poorly)", creative);
+
+      // Keep a returning user's last choice if it still exists.
+      var preferred = state.settings.template;
+      if (preferred && templateById(preferred)) select.value = preferred;
+      else if (starters.length) select.value = starters[0].id;
+      select.onchange = function () {
+        state.settings.template = select.value;
+        saveSettings();
+        updateTemplateInfo();
+      };
+      updateTemplateInfo();
+
+      logNetwork({
+        what: "Templates",
+        detail: state.templates.length + " layouts loaded (" + atsSafe.length + " ATS-safe, " +
+          starters.length + " starter packs, " + creative.length + " creative)"
       });
-      var ats = (data.atsSafe || []).length;
-      logNetwork({ what: "Templates", detail: data.house.length + " layouts loaded (" + ats + " ATS-safe)" });
     });
   }
 
@@ -828,6 +1236,7 @@
     $("btn_to_canvas").onclick = loadIntoCanvas;
     $("btn_tex_to_canvas").onclick = loadIntoCanvas;
     $("btn_render").onclick = renderCanvas;
+    if ($("btn_template_content")) $("btn_template_content").onclick = loadStarterContent;
     $("btn_load_sample").onclick = function () {
       api("/api/sample").then(function (sample) {
         fillCanvas(sample);
@@ -931,9 +1340,12 @@
     bind();
     updateKeyStatus();
     checkServer();
-    setTab("ai");
+    setTab("canvas");
     Promise.all([loadTemplates(), loadPromptTemplate(), loadShellCache()])
-      .then(function () { logNetwork({ what: "Ready", detail: "no personal data sent anywhere yet" }); })
+      .then(function () {
+        applyTemplateQuery();
+        logNetwork({ what: "Ready", detail: "no personal data sent anywhere yet" });
+      })
       .catch(function (err) { setNotice($("aiWarnings"), "bad", err.message); });
   }
 

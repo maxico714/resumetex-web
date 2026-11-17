@@ -56,7 +56,7 @@ https://render.com/deploy?repo=https://github.com/maxico714/resumetex-web
    - `apt-get ... install ... lmodern texlive-latex-base ...`
    - `python -m resumetex_web.docker_check`
    - one `ok <template>: ...` line per gallery template
-   - **`OK: all 15 gallery templates compiled to PDF.`**
+   - **`OK: all 18 gallery templates compiled to PDF.`**
    - `Your service is live 🎉`
 7. Open the service URL shown at the top of the dashboard. It is normally
    `https://resumetex-web.onrender.com`; Render adds a suffix if the name is
@@ -111,7 +111,7 @@ service by hand.
 5. Do **not** add `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, or any other AI key.
    Keys stay in the user's browser, by design.
 6. Click **Create Web Service** / **Deploy Web Service**.
-7. Wait for **`OK: all 15 gallery templates compiled to PDF.`** in the log.
+7. Wait for **`OK: all 18 gallery templates compiled to PDF.`** in the log.
 
 If the Docker fields are hidden, make sure **Language** is set to **Docker**
 first; Render only shows them for Docker services.
@@ -292,7 +292,7 @@ are the usual cause.
 The running container is not the image built from this Dockerfile. Confirm:
 
 - **Settings → Build & Deploy → Source → Runtime** is **Docker**.
-- The deploy log contains `OK: all 15 gallery templates compiled to PDF.`
+- The deploy log contains `OK: all 18 gallery templates compiled to PDF.`
 - You are checking the URL of this service, not an older duplicate.
 
 Delete any duplicate service, then redeploy.
@@ -399,7 +399,7 @@ docker run --rm -p 8000:8000 `
 ```
 
 Open <http://127.0.0.1:8000>. Press `Ctrl+C` to stop. A successful build ends
-with the same `OK: all 15 gallery templates compiled to PDF.` line. This is the
+with the same `OK: all 18 gallery templates compiled to PDF.` line. This is the
 closest possible preview of what Render will run.
 
 If the local build fails, the error is in the repository, not in Render; fix it
@@ -418,7 +418,7 @@ before deploying.
 - [ ] `RESUMETEX_ALLOW_ONLINE_COMPILE=0` (private default)
 - [ ] `RESUMETEX_HOST=0.0.0.0`
 - [ ] No AI API keys in Render environment variables.
-- [ ] Build log shows `OK: all 15 gallery templates compiled to PDF.`
+- [ ] Build log shows `OK: all 18 gallery templates compiled to PDF.`
 - [ ] `/healthz` returns 200.
 - [ ] `/api/health` shows `pdflatex: true` and `missing: []`.
 - [ ] **Test LaTeX setup** succeeds in the app.

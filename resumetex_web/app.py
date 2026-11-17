@@ -7,7 +7,7 @@ from flask import Flask, render_template
 from .api import api
 from .config import Config
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def create_app(config: Config | None = None) -> Flask:

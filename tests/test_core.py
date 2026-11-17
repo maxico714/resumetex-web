@@ -11,8 +11,8 @@ sys.path.insert(0, ROOT)
 
 from resumetex_web.core import (LaTeXRejected, PiiFields, PiiLeakError, PiiRedactor,
                                 analyze, build_header, compose, escape_text, generate_body,
-                                gallery, missing_core_sections, render_body, sample_data,
-                                sanitize_ai_output)
+                                gallery, missing_core_sections, render_body, render_document,
+                                sample_data, sanitize_ai_output, starter_data)
 from resumetex_web.core.gallery import preset
 
 PII = PiiFields(
@@ -90,6 +90,16 @@ class LatexTests(unittest.TestCase):
         self.assertIn("rehan@leadsgp.tech", header)
         self.assertIn("navyblue", header)
 
+    def test_headline_appears_in_gallery_headers(self):
+        for preset_id in ("starter-classic", "starter-navy", "starter-executive"):
+            document = render_document(starter_data(), preset(preset_id), PII)
+            self.assertIn("Senior Software Developer", document, preset_id)
+
+    def test_headline_is_escaped(self):
+        layout = preset("starter-navy")
+        document = render_document({"headline": "R&D 100%_lead"}, layout, PII)
+        self.assertIn("R\\&D 100\\%\\_lead", document)
+
     def test_compose_resolves_placeholders(self):
         doc = compose("navy", PII, "\\section{Summary}\nText.")
         self.assertNotIn("%%HEADER%%", doc)
@@ -132,11 +142,29 @@ class AtsTests(unittest.TestCase):
 
 
 class GalleryTests(unittest.TestCase):
-    def test_gallery_has_fifteen_templates(self):
+    def test_gallery_has_eighteen_templates(self):
         items = gallery()
-        self.assertEqual(len(items), 15)
-        self.assertEqual(len([g for g in items if g["atsClass"] == "ats"]), 12)
+        self.assertEqual(len(items), 18)
+        self.assertEqual(len([g for g in items if g["atsClass"] == "ats"]), 15)
         self.assertEqual(len([g for g in items if g["atsClass"] == "creative"]), 3)
+        self.assertEqual(len([g for g in items if g.get("starter")]), 3)
+
+    def test_starter_packs_are_ats_safe_and_complete(self):
+        items = [g for g in gallery() if g.get("starter")]
+        self.assertEqual(sorted(g["id"] for g in items),
+                         ["starter-classic", "starter-executive", "starter-navy"])
+        for entry in items:
+            self.assertEqual(entry["atsClass"], "ats")
+            self.assertGreaterEqual(entry["atsScore"], 90)
+
+    def test_starter_data_has_no_contact_details(self):
+        data = starter_data()
+        self.assertTrue(data["headline"])
+        self.assertTrue(data["experience"])
+        blob = json.dumps(data).lower()
+        for needle in ("@gmail.com", "linkedin.com/in/", "github.com/", "+91",
+                       "rehan", "rgpv", "bhopal", "indore"):
+            self.assertNotIn(needle, blob)
 
     def test_creative_templates_score_lower(self):
         items = gallery()

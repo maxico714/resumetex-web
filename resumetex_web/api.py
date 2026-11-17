@@ -6,12 +6,19 @@ is written to disk. The browser holds the personal data and the provider key.
 
 from __future__ import annotations
 
-from flask import Blueprint, current_app, jsonify, request, send_file
+import base64
+import json
+import queue
+import threading
+import time
+
+from flask import (Blueprint, Response, current_app, jsonify, request, send_file,
+                   stream_with_context)
 
 from .core import (LaTeXRejected, PiiFields, PiiLeakError, PiiRedactor, ResumeOptions,
                    analyze, build_system_prompt, build_user_content, compose, compile_local,
                    compile_online, find_placeholders, gallery, generate_body, is_available,
-                   missing_core_sections, preset, render_body, sample_data,
+                   missing_core_sections, preset, render_body, sample_data, starter_data,
                    sanitize_ai_output, is_compatible_custom_prompt)
 from .core.compile import CompileError
 
@@ -65,10 +72,13 @@ def health():
 
 @api.get("/templates")
 def templates():
+    entries = gallery()
     return jsonify({
-        "house": gallery(),
-        "atsSafe": [g for g in gallery() if g["atsClass"] == "ats"],
-        "creative": [g for g in gallery() if g["atsClass"] == "creative"],
+        "house": entries,
+        "atsSafe": [g for g in entries if g["atsClass"] == "ats"],
+        "creative": [g for g in entries if g["atsClass"] == "creative"],
+        "starters": [g for g in entries if g.get("starter")],
+        "starterData": starter_data() if any(g.get("starter") for g in entries) else {},
     })
 
 
@@ -190,7 +200,8 @@ def canvas_render():
     report = analyze(body, str(payload.get("jobDescription") or "") or None)
     from .core.canvas import build_preamble
     return jsonify({"body": body, "preamble": build_preamble(layout),
-                    "accent": layout.accent, "ats": report.as_dict()})
+                    "accent": layout.accent, "headerStyle": layout.header_style,
+                    "entryStyle": layout.entry_style, "ats": report.as_dict()})
 
 
 @api.post("/sanitize")
@@ -234,21 +245,13 @@ def prompt():
     })
 
 
-@api.post("/compile")
-def compile_tex():
-    """Compile LaTeX to PDF.
-
-    mode=local   server pdflatex (private, default)
-    mode=auto    try local first, then the online service if it is enabled
-    mode=online  third-party service (uploads the full document)
-    """
-    config = current_app.config
-    payload = _payload()
-    tex = str(payload.get("tex") or "")
+def _compile_mode(payload: dict) -> str:
     mode = str(payload.get("mode") or "local").lower()
-    if mode not in ("local", "auto", "online"):
-        mode = "local"
+    return mode if mode in ("local", "auto", "online") else "local"
 
+
+def _compile_guard(mode: str, config):
+    """The same privacy gates for the buffered and streaming endpoints."""
     if mode in ("local", "auto") and not config["ALLOW_COMPILE"]:
         return jsonify({
             "error": "Server-side compiling is disabled on this instance. "
@@ -264,28 +267,62 @@ def compile_tex():
                      "to enable it.",
             "code": "online_disabled",
         }), 403
+    return None
 
-    try:
-        used_online = False
-        if mode == "online":
+
+def _run_compile(tex: str, mode: str, config, on_stage=None):
+    """Run one compile and report real stage transitions to the caller."""
+    def notify(stage: str, progress: int, message: str) -> None:
+        if on_stage:
+            on_stage(stage, progress, message)
+
+    used_online = False
+    if mode == "online":
+        notify("online", 30, "Uploading the document to the online compiler.")
+        result = compile_online(tex, config["ONLINE_COMPILE_URL"],
+                                config["COMPILE_TIMEOUT"])
+        used_online = True
+    elif mode == "auto":
+        notify("local", 28, "Trying the private server compiler first.")
+        try:
+            result = compile_local(tex, config["COMPILE_TIMEOUT"])
+        except CompileError as local_error:
+            if not config["ALLOW_ONLINE_COMPILE"]:
+                raise CompileError(
+                    str(local_error) + " The online fallback is disabled on "
+                    "this server (RESUMETEX_ALLOW_ONLINE_COMPILE=0)."
+                )
+            notify("online", 55, "Local compile failed. Uploading to the online compiler as a fallback.")
             result = compile_online(tex, config["ONLINE_COMPILE_URL"],
                                     config["COMPILE_TIMEOUT"])
+            result.engine += f" (local failed: {local_error})"
             used_online = True
-        elif mode == "auto":
-            try:
-                result = compile_local(tex, config["COMPILE_TIMEOUT"])
-            except CompileError as local_error:
-                if not config["ALLOW_ONLINE_COMPILE"]:
-                    raise CompileError(
-                        str(local_error) + " The online fallback is disabled on "
-                        "this server (RESUMETEX_ALLOW_ONLINE_COMPILE=0)."
-                    )
-                result = compile_online(tex, config["ONLINE_COMPILE_URL"],
-                                        config["COMPILE_TIMEOUT"])
-                result.engine += f" (local failed: {local_error})"
-                used_online = True
-        else:
-            result = compile_local(tex, config["COMPILE_TIMEOUT"])
+    else:
+        notify("local", 28, "Running pdflatex on this server. Nothing is uploaded.")
+        result = compile_local(tex, config["COMPILE_TIMEOUT"])
+    notify("preview", 90, "PDF generated. Preparing the preview.")
+    return result, used_online
+
+
+@api.post("/compile")
+def compile_tex():
+    """Compile LaTeX to PDF.
+
+    mode=local   server pdflatex (private, default)
+    mode=auto    try local first, then the online service if it is enabled
+    mode=online  third-party service (uploads the full document)
+    """
+    config = current_app.config
+    payload = _payload()
+    tex = str(payload.get("tex") or "")
+    mode = _compile_mode(payload)
+
+    guard = _compile_guard(mode, config)
+    if guard:
+        return guard
+
+    try:
+        result, used_online = _run_compile(tex, mode, config)
     except CompileError as exc:
         return jsonify({"error": str(exc), "code": "compile_error"}), 400
     response = send_file(
@@ -297,6 +334,114 @@ def compile_tex():
     response.headers["X-ResumeTeX-Engine"] = result.engine
     response.headers["X-ResumeTeX-Pages"] = str(result.pages)
     response.headers["X-ResumeTeX-Online"] = "1" if used_online else "0"
+    return response
+
+
+@api.post("/compile/stream")
+def compile_stream():
+    """Compile and stream progress as newline-delimited JSON.
+
+    The browser gets a real event when the request is accepted, when pdflatex
+    starts, when the PDF is ready, and heartbeats with elapsed time while a
+    slow (or cold) instance is still working. The final event carries the PDF
+    as base64 so no temporary file or public URL is needed.
+    """
+    config = current_app.config
+    payload = _payload()
+    tex = str(payload.get("tex") or "")
+    mode = _compile_mode(payload)
+
+    guard = _compile_guard(mode, config)
+    if guard:
+        return guard
+
+    def ndjson(event: dict) -> str:
+        return json.dumps(event, separators=(",", ":")) + "\n"
+
+    def generate():
+        started = time.monotonic()
+        logger = current_app.logger
+        yield ndjson({
+            "type": "start", "mode": mode, "progress": 5, "elapsed": 0.0,
+            "message": "Request received. Preparing the document.",
+        })
+
+        events: queue.Queue = queue.Queue()
+
+        def notify(stage: str, progress: int, message: str) -> None:
+            events.put({
+                "type": "stage", "stage": stage, "progress": progress,
+                "message": message,
+                "elapsed": round(time.monotonic() - started, 1),
+            })
+
+        def worker() -> None:
+            try:
+                result, used_online = _run_compile(tex, mode, config, notify)
+                events.put({
+                    "type": "done", "progress": 100,
+                    "message": "PDF ready.",
+                    "engine": result.engine, "pages": result.pages,
+                    "online": used_online, "bytes": len(result.pdf),
+                    "pdf": base64.b64encode(result.pdf).decode("ascii"),
+                    "elapsed": round(time.monotonic() - started, 1),
+                })
+            except CompileError as exc:
+                events.put({
+                    "type": "error", "code": "compile_error",
+                    "progress": 100, "message": str(exc),
+                    "elapsed": round(time.monotonic() - started, 1),
+                })
+            except Exception:  # noqa: BLE001 - never leave the browser hanging
+                logger.exception("Unexpected error while streaming a compile")
+                events.put({
+                    "type": "error", "code": "compile_error", "progress": 100,
+                    "message": "The server could not finish the compile.",
+                    "elapsed": round(time.monotonic() - started, 1),
+                })
+
+        thread = threading.Thread(target=worker, name="resumetex-compile", daemon=True)
+        thread.start()
+
+        finished = False
+        while True:
+            try:
+                event = events.get(timeout=1.5)
+            except queue.Empty:
+                if not thread.is_alive():
+                    break
+                elapsed = time.monotonic() - started
+                progress = min(85, 35 + int(elapsed * 2))
+                if mode == "online":
+                    message = "Waiting for the online compiler to return the PDF."
+                elif elapsed < 8:
+                    message = "pdflatex is rendering the document."
+                elif elapsed < 25:
+                    message = "Still compiling. This can take a little longer on a free instance."
+                else:
+                    message = "Still compiling. A sleeping free instance can take up to a minute to wake."
+                yield ndjson({
+                    "type": "heartbeat", "progress": progress,
+                    "message": message, "elapsed": round(elapsed, 1),
+                })
+                continue
+
+            finished = True
+            yield ndjson(event)
+            if event["type"] in ("done", "error"):
+                break
+
+        if not finished:
+            yield ndjson({
+                "type": "error", "code": "compile_error", "progress": 100,
+                "message": "The compiler stopped without returning a result.",
+                "elapsed": round(time.monotonic() - started, 1),
+            })
+
+    response = Response(stream_with_context(generate()),
+                        mimetype="application/x-ndjson")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Accel-Buffering"] = "no"
     return response
 
 
